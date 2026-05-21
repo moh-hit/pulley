@@ -571,7 +571,9 @@ private struct PRDetailPane: View {
                 nsImage: Config.preferredIDE.icon,
                 style: .primary
             ) {
-                PRActions.checkoutAndOpen(pr: pr)
+                MainActor.assumeIsolated {
+                    PRActions.checkoutAndOpen(pr: pr)
+                }
             }
             .help("Create a worktree and open in \(Config.preferredIDE.displayName)")
 
