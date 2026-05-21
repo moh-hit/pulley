@@ -41,7 +41,8 @@ final class Store: ObservableObject {
         timer?.invalidate()
         // Auto-sync every 30 minutes (manual sync still available via the button)
         timer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.sync() }
+            guard let self else { return }
+            Task { @MainActor in self.sync() }
         }
     }
 
