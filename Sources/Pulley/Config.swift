@@ -101,7 +101,7 @@ enum Config {
     }
 
     static var workspaceBaseDir: String {
-        get { UserDefaults.standard.string(forKey: baseDirKey) ?? "~/code" }
+        get { UserDefaults.standard.string(forKey: baseDirKey) ?? "./" }
         set { UserDefaults.standard.set(newValue, forKey: baseDirKey) }
     }
 

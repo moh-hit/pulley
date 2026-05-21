@@ -74,9 +74,19 @@ enum IDE: String, Codable, CaseIterable, Identifiable, Hashable {
     }
 
     /// Real macOS app icon, sourced from the installed `.app` bundle. Returns
-    /// nil if the IDE isn't installed; callers should fall back to text.
+    /// nil if the IDE isn't installed; callers should fall back to `fallbackSymbol`.
     var icon: NSImage? {
         installedURL.map { NSWorkspace.shared.icon(forFile: $0.path) }
+    }
+
+    /// SF Symbol shown when the IDE isn't installed, so each tile keeps a
+    /// recognizable identity instead of all collapsing to one generic glyph.
+    var fallbackSymbol: String {
+        switch self {
+        case .vscode: return "chevron.left.forwardslash.chevron.right"
+        case .cursor: return "cursorarrow.rays"
+        case .zed:    return "bolt.fill"
+        }
     }
 }
 

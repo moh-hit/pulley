@@ -120,10 +120,17 @@ struct SettingsView: View {
 
                     section(title: "CHECKOUT IN IDE", icon: "chevron.left.forwardslash.chevron.right") {
                         field(label: "Preferred IDE") {
-                            HStack(spacing: 8) {
-                                ForEach(IDE.allCases) { ide in
-                                    IDETile(ide: ide, selected: preferredIDE == ide) {
-                                        preferredIDE = ide
+                            let visibleIDEs = IDE.allCases.filter {
+                                $0.installedURL != nil || $0 == preferredIDE
+                            }
+                            if visibleIDEs.isEmpty {
+                                caption("No supported IDE installed. Install VS Code, Cursor, or Zed to enable checkout.")
+                            } else {
+                                HStack(spacing: 8) {
+                                    ForEach(visibleIDEs) { ide in
+                                        IDETile(ide: ide, selected: preferredIDE == ide) {
+                                            preferredIDE = ide
+                                        }
                                     }
                                 }
                             }
@@ -397,8 +404,9 @@ private struct IDETile: View {
                             .resizable()
                             .interpolation(.high)
                     } else {
-                        Image(systemName: "questionmark.app.dashed")
+                        Image(systemName: ide.fallbackSymbol)
                             .resizable()
+                            .aspectRatio(contentMode: .fit)
                             .foregroundColor(.secondary)
                     }
                 }
