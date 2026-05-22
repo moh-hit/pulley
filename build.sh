@@ -29,8 +29,17 @@ fi
 # Dock / Finder icon — macOS looks for CFBundleIconFile here, not inside the SPM bundle.
 cp Sources/Pulley/Resources/Pulley.icns "$BUNDLE/Contents/Resources/Pulley.icns"
 
-# Ad-hoc sign so launch services accepts the bundle (no developer cert needed)
-codesign --force --deep --sign - "$BUNDLE" >/dev/null 2>&1 || true
+# Sign the bundle. If PULLEY_SIGN_IDENTITY is set (set by release.sh / CI when
+# building a release with a Developer ID cert), use proper signing + hardened
+# runtime + timestamp so the DMG can be notarized. Otherwise fall back to
+# ad-hoc signing so plain ./build.sh works for contributors without a cert.
+if [[ -n "${PULLEY_SIGN_IDENTITY:-}" ]]; then
+    echo "→ Signing $BUNDLE as: $PULLEY_SIGN_IDENTITY"
+    codesign --force --deep --options runtime --timestamp \
+        --sign "$PULLEY_SIGN_IDENTITY" "$BUNDLE"
+else
+    codesign --force --deep --sign - "$BUNDLE" >/dev/null 2>&1 || true
+fi
 
 echo ""
 echo "Built:   $HERE/$BUNDLE"

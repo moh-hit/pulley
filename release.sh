@@ -213,8 +213,26 @@ hdiutil create \
     -ov \
     "$DMG_FINAL" >/dev/null
 
-# Ad-hoc sign so Gatekeeper accepts the DMG file itself.
-codesign --force --sign - "$DMG_FINAL" >/dev/null 2>&1 || true
+# Sign + notarize the DMG. If PULLEY_SIGN_IDENTITY is set, do the full
+# Gatekeeper-friendly flow: Developer ID signing, notarytool submission,
+# stapling. Otherwise fall back to ad-hoc (works locally; users will hit
+# Gatekeeper warnings on download).
+if [[ -n "${PULLEY_SIGN_IDENTITY:-}" ]]; then
+    echo "→ Signing DMG as: $PULLEY_SIGN_IDENTITY"
+    codesign --force --sign "$PULLEY_SIGN_IDENTITY" --timestamp "$DMG_FINAL"
+
+    NOTARY_PROFILE="${PULLEY_NOTARY_PROFILE:-pulley-notary}"
+    echo "→ Submitting for notarization via profile '$NOTARY_PROFILE' (waits for Apple)"
+    xcrun notarytool submit "$DMG_FINAL" \
+        --keychain-profile "$NOTARY_PROFILE" \
+        --wait
+
+    echo "→ Stapling notarization ticket"
+    xcrun stapler staple "$DMG_FINAL"
+    xcrun stapler validate "$DMG_FINAL"
+else
+    codesign --force --sign - "$DMG_FINAL" >/dev/null 2>&1 || true
+fi
 
 rm -rf "$STAGING"
 

@@ -21,8 +21,71 @@ jobs:
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build DMG
+      - name: Import Developer ID code-signing certificate
+        env:
+          DEV_ID_CERT_P12_BASE64: ${{ secrets.DEV_ID_CERT_P12_BASE64 }}
+          DEV_ID_CERT_PASSWORD:   ${{ secrets.DEV_ID_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD:      ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/pulley.keychain-db"
+
+          echo -n "$DEV_ID_CERT_P12_BASE64" | base64 --decode -o "$CERT_PATH"
+
+          security create-keychain  -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain  -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" \
+              -P "$DEV_ID_CERT_PASSWORD" \
+              -A -t cert -f pkcs12 \
+              -k "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+              -S apple-tool:,apple:,codesign: \
+              -s -k "$KEYCHAIN_PASSWORD" \
+              "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+              | grep "Developer ID Application" \
+              | head -1 \
+              | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$IDENTITY" ]; then
+              echo "ERROR: no Developer ID Application identity in imported keychain" >&2
+              exit 1
+          fi
+          echo "PULLEY_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "→ Signing identity: $IDENTITY"
+
+      - name: Store notarytool credentials
+        env:
+          APPLE_ID:          ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID:     ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials pulley-notary \
+              --apple-id  "$APPLE_ID" \
+              --team-id   "$APPLE_TEAM_ID" \
+              --password  "$APPLE_ID_PASSWORD"
+
+      - name: Build, sign, notarize, staple DMG
+        env:
+          PULLEY_NOTARY_PROFILE: pulley-notary
         run: ./release.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          if [ -f CHANGELOG.md ]; then
+              awk -v ver="$VERSION" '
+                  $0 ~ "^## \\[" ver "\\]" { found=1; next }
+                  found && /^## \[/ { exit }
+                  found { print }
+              ' CHANGELOG.md > .release-notes.md
+          fi
+          if [ ! -s .release-notes.md ]; then
+              echo "_No changelog entry for ${VERSION}._" > .release-notes.md
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -31,4 +94,5 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: dist/Pulley-${{ steps.ver.outputs.version }}.dmg
           fail_on_unmatched_files: true
+          body_path: .release-notes.md
           generate_release_notes: true

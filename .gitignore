@@ -5,3 +5,4 @@ Pulley.app/
 Package.resolved
 dist/
 .DS_Store
+.release-notes.md
