@@ -38,6 +38,8 @@ private struct GHPullDetail: Decodable {
     let draft: Bool?
     /// GitHub: clean | unstable | behind | dirty | blocked | has_hooks | draft | unknown
     let mergeableState: String?
+    /// GraphQL node ID; needed by `setDraft(...)` mutations.
+    let nodeId: String?
 }
 
 private struct GHCheckRun: Decodable {
@@ -216,6 +218,65 @@ struct GitHubClient: Sendable {
         return b.body ?? ""
     }
 
+    /// POST a pull-request review. `event = .approve` accepts an empty body;
+    /// `.requestChanges` / `.comment` require one (GitHub returns 422
+    /// otherwise — we let that bubble up rather than client-side validating,
+    /// since the UI prevents it).
+    func submitReview(
+        org: String, repo: String, number: Int,
+        event: ReviewEvent, body: String?
+    ) async throws {
+        var req = request("/repos/\(org)/\(repo)/pulls/\(number)/reviews")
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload: [String: Any] = ["event": event.rawValue]
+        if let body, !body.isEmpty { payload["body"] = body }
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            throw GitHubError(message: "Review failed (\((resp as? HTTPURLResponse)?.statusCode ?? -1)): \(bodyStr.prefix(200))")
+        }
+    }
+
+    /// Flip a PR between draft and ready-for-review. GitHub only exposes this
+    /// via GraphQL — `convertPullRequestToDraft` and
+    /// `markPullRequestReadyForReview` both take the PR's node ID.
+    func setDraft(nodeID: String, draft: Bool) async throws {
+        let mutation = draft
+            ? "mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { isDraft } } }"
+            : "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }"
+        try await graphql(query: mutation, variables: ["id": nodeID])
+    }
+
+    /// Minimal GraphQL POST. GitHub returns 200 even on field-level errors,
+    /// so we parse the `errors` array and throw if present.
+    private func graphql(query: String, variables: [String: Any]) async throws {
+        var req = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)",             forHTTPHeaderField: "Authorization")
+        req.setValue("application/json",            forHTTPHeaderField: "Content-Type")
+        req.setValue("2022-11-28",                  forHTTPHeaderField: "X-GitHub-Api-Version")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "query": query, "variables": variables
+        ])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            throw GitHubError(message: "GraphQL HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1): \(bodyStr.prefix(200))")
+        }
+        struct GHGraphResp: Decodable {
+            struct Err: Decodable { let message: String }
+            let errors: [Err]?
+        }
+        if let parsed = try? JSONDecoder().decode(GHGraphResp.self, from: data),
+           let errs = parsed.errors, !errs.isEmpty {
+            throw GitHubError(message: errs.map(\.message).joined(separator: "; "))
+        }
+    }
+
     func fetchPRs(scope: Scope) async throws -> [PR] {
         guard !token.isEmpty, !orgs.isEmpty else {
             throw GitHubError(message: "Token or org not configured")
@@ -287,6 +348,7 @@ struct GitHubClient: Sendable {
                     var headSha = ""
                     var isDraft = issue.draft ?? false
                     var mergeable: MergeableState = .unknown
+                    var nodeID: String? = nil
                     if let detail: GHPullDetail = try? await fetch(
                         "/repos/\(org)/\(repo)/pulls/\(issue.number)",
                         as: GHPullDetail.self
@@ -297,6 +359,7 @@ struct GitHubClient: Sendable {
                         if let raw = detail.mergeableState {
                             mergeable = MergeableState(rawValue: raw) ?? .unknown
                         }
+                        nodeID = detail.nodeId
                     }
 
                     // CI checks for the head commit. Best-effort: no checks
@@ -336,7 +399,8 @@ struct GitHubClient: Sendable {
                         createdAt: issue.createdAt,
                         checks: checks,
                         checkStatus: checkStatus,
-                        mergeableState: mergeable
+                        mergeableState: mergeable,
+                        nodeID: nodeID
                     )
                 }
             }

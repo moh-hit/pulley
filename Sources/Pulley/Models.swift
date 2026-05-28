@@ -237,4 +237,16 @@ struct PR: Identifiable, Hashable, Codable {
     let checks: [CheckRun]
     let checkStatus: CheckStatus
     let mergeableState: MergeableState
+    /// GraphQL node ID (`PR_kwDO…`). Needed for the GraphQL mutations that
+    /// flip draft / ready-for-review. Optional so cached blobs from before
+    /// this field existed decode cleanly with `nil`; next sync fills it in.
+    let nodeID: String?
+}
+
+/// Review event passed to `POST /repos/.../pulls/N/reviews`. Raw values are
+/// the literal strings GitHub expects.
+enum ReviewEvent: String, Sendable {
+    case approve         = "APPROVE"
+    case requestChanges  = "REQUEST_CHANGES"
+    case comment         = "COMMENT"
 }

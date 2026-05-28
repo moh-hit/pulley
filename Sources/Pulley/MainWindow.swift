@@ -1293,17 +1293,37 @@ private func colorForRepo(_ repo: String) -> Color {
 
 private struct PRDetailPane: View {
     let pr: PR
+    @EnvironmentObject var store: Store
 
     @State private var descriptionText: String = ""
     @State private var loading = false
     @State private var loadError: String? = nil
+
+    // Review / draft state. `reviewMode == nil` keeps the textarea collapsed;
+    // setting it to `.requestChanges` or `.comment` expands it. `.approve`
+    // is never stored here — Approve fires immediately on click.
+    @State private var reviewMode: ReviewEvent? = nil
+    @State private var reviewBody: String = ""
+    @State private var inflightAction: InflightAction? = nil
+    @State private var actionError: String? = nil
+
+    private enum InflightAction: Equatable { case draft, review }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 header
                 statusRow
+                if pr.mergeableState == .dirty {
+                    ConflictBanner()
+                }
                 actionRow
+
+                divider
+
+                section("Review") {
+                    reviewSection
+                }
 
                 divider
 
@@ -1325,7 +1345,15 @@ private struct PRDetailPane: View {
         }
         .background(Color(NSColor.textBackgroundColor))
         .onAppear(perform: loadBody)
-        .onChange(of: pr.id) { _ in loadBody() }
+        .onChange(of: pr.id) { _ in
+            loadBody()
+            // Reset per-PR transient state so the textarea / error from one
+            // PR doesn't leak into the next selection.
+            reviewMode = nil
+            reviewBody = ""
+            actionError = nil
+            inflightAction = nil
+        }
     }
 
     private var divider: some View {
@@ -1435,7 +1463,202 @@ private struct PRDetailPane: View {
                 .help("Copy branch name")
             }
 
+            if let nodeID = pr.nodeID {
+                DetailActionButton(
+                    title: pr.isDraft ? "Mark ready for review" : "Convert to draft",
+                    systemImage: pr.isDraft ? "checkmark.circle" : "pencil.and.outline",
+                    style: .secondary
+                ) {
+                    toggleDraft(nodeID: nodeID)
+                }
+                .help(pr.isDraft
+                      ? "Move this PR out of draft state"
+                      : "Convert this PR back to draft")
+                .disabled(inflightAction == .draft)
+            }
+
+            if inflightAction == .draft {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.leading, 2)
+            }
+
             Spacer()
+        }
+    }
+
+    private var reviewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                DetailActionButton(
+                    title: "Approve",
+                    systemImage: "checkmark.seal.fill",
+                    style: .primary
+                ) {
+                    submitReview(event: .approve, body: nil)
+                }
+                .disabled(inflightAction != nil)
+
+                DetailActionButton(
+                    title: "Request changes",
+                    systemImage: "exclamationmark.bubble",
+                    style: .secondary
+                ) {
+                    if reviewMode == .requestChanges {
+                        reviewMode = nil
+                    } else {
+                        reviewMode = .requestChanges
+                        actionError = nil
+                    }
+                }
+                .disabled(inflightAction != nil)
+
+                DetailActionButton(
+                    title: "Comment",
+                    systemImage: "text.bubble",
+                    style: .secondary
+                ) {
+                    if reviewMode == .comment {
+                        reviewMode = nil
+                    } else {
+                        reviewMode = .comment
+                        actionError = nil
+                    }
+                }
+                .disabled(inflightAction != nil)
+
+                if inflightAction == .review {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.leading, 2)
+                }
+
+                Spacer()
+            }
+
+            if let mode = reviewMode {
+                reviewComposer(mode: mode)
+            }
+
+            if let err = actionError {
+                Text(err)
+                    .font(.system(size: 12))
+                    .foregroundColor(.red)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func reviewComposer(mode: ReviewEvent) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextEditor(text: $reviewBody)
+                .font(.system(size: 13))
+                .frame(minHeight: 88, maxHeight: 200)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.primary.opacity(0.15), lineWidth: 0.7)
+                )
+                .overlay(alignment: .topLeading) {
+                    if reviewBody.isEmpty {
+                        Text(mode == .requestChanges
+                             ? "What needs to change?"
+                             : "Leave a comment…")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary.opacity(0.55))
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 16)
+                            .allowsHitTesting(false)
+                    }
+                }
+
+            HStack(spacing: 8) {
+                DetailActionButton(
+                    title: "Send review",
+                    systemImage: "paperplane.fill",
+                    style: .primary
+                ) {
+                    submitReview(event: mode, body: reviewBody)
+                }
+                .disabled(reviewBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || inflightAction != nil)
+
+                DetailActionButton(
+                    title: "Cancel",
+                    systemImage: "xmark",
+                    style: .secondary
+                ) {
+                    reviewMode = nil
+                    reviewBody = ""
+                }
+                .disabled(inflightAction != nil)
+
+                Spacer()
+            }
+        }
+    }
+
+    private func toggleDraft(nodeID: String) {
+        let token = Config.token
+        guard !token.isEmpty else {
+            actionError = "Token not configured."
+            return
+        }
+        inflightAction = .draft
+        actionError = nil
+        let client = GitHubClient(token: token, orgs: Config.orgs)
+        let targetDraft = !pr.isDraft
+        Task {
+            do {
+                try await client.setDraft(nodeID: nodeID, draft: targetDraft)
+                await MainActor.run {
+                    self.inflightAction = nil
+                    self.store.sync()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionError = error.localizedDescription
+                    self.inflightAction = nil
+                }
+            }
+        }
+    }
+
+    private func submitReview(event: ReviewEvent, body: String?) {
+        let token = Config.token
+        guard !token.isEmpty else {
+            actionError = "Token not configured."
+            return
+        }
+        inflightAction = .review
+        actionError = nil
+        let client = GitHubClient(token: token, orgs: Config.orgs)
+        let org = pr.org, repo = pr.repo, number = pr.number
+        let trimmed = body?.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do {
+                try await client.submitReview(
+                    org: org, repo: repo, number: number,
+                    event: event, body: trimmed
+                )
+                await MainActor.run {
+                    self.reviewMode = nil
+                    self.reviewBody = ""
+                    self.inflightAction = nil
+                    self.store.sync()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionError = error.localizedDescription
+                    self.inflightAction = nil
+                }
+            }
         }
     }
 
@@ -1519,6 +1742,41 @@ private struct PRDetailPane: View {
                 }
             }
         }
+    }
+}
+
+/// Prominent red banner shown above the action row when GitHub reports the
+/// PR's `mergeable_state == dirty`. The status row already carries a small
+/// "conflicts" badge; this just makes the state un-missable on the surface
+/// where the user is about to act on the PR.
+private struct ConflictBanner: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.red)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Merge conflicts with the base branch")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.primary)
+                Text("Rebase or merge the base branch locally before this PR can be merged.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.red.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.red.opacity(0.35), lineWidth: 0.7)
+        )
     }
 }
 
