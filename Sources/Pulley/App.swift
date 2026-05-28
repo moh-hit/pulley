@@ -171,20 +171,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `.accessory` apps don't get a main menu by default, so Cmd+V (and friends)
-    /// have no responder and silently do nothing. Install a minimal Edit menu
-    /// so paste/copy/cut/select-all/undo/redo work inside SwiftUI text fields.
+    /// have no responder and silently do nothing. Install a full menu (App,
+    /// File, Edit, View, Window) so standard shortcuts — ⌘W, ⌘M, ⌃⌘F, copy /
+    /// paste, etc. — all work when the main window is showing.
     private func installEditMenu() {
         let mainMenu = NSMenu()
 
+        // App menu
         let appItem = NSMenuItem()
-        appItem.submenu = NSMenu(title: "Pulley")
-        appItem.submenu?.addItem(
-            NSMenuItem(title: "Quit Pulley",
-                       action: #selector(NSApplication.terminate(_:)),
-                       keyEquivalent: "q")
-        )
+        let appMenu = NSMenu(title: "Pulley")
+        appMenu.addItem(NSMenuItem(title: "About Pulley",
+                                   action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                                   keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "Settings…",
+                                   action: #selector(openSettingsFromMenu),
+                                   keyEquivalent: ","))
+        appMenu.addItem(NSMenuItem.separator())
+        let hideItem = NSMenuItem(title: "Hide Pulley",
+                                  action: #selector(NSApplication.hide(_:)),
+                                  keyEquivalent: "h")
+        appMenu.addItem(hideItem)
+        let hideOthers = NSMenuItem(title: "Hide Others",
+                                    action: #selector(NSApplication.hideOtherApplications(_:)),
+                                    keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthers)
+        appMenu.addItem(NSMenuItem(title: "Show All",
+                                   action: #selector(NSApplication.unhideAllApplications(_:)),
+                                   keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "Quit Pulley",
+                                   action: #selector(NSApplication.terminate(_:)),
+                                   keyEquivalent: "q"))
+        appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
+        // File
+        let fileItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(NSMenuItem(title: "Open Main Window",
+                                    action: #selector(openMainWindowFromMenu),
+                                    keyEquivalent: "o"))
+        fileMenu.addItem(NSMenuItem.separator())
+        fileMenu.addItem(NSMenuItem(title: "Sync Now",
+                                    action: #selector(syncFromMenu),
+                                    keyEquivalent: "r"))
+        fileMenu.addItem(NSMenuItem.separator())
+        fileMenu.addItem(NSMenuItem(title: "Close Window",
+                                    action: #selector(NSWindow.performClose(_:)),
+                                    keyEquivalent: "w"))
+        fileItem.submenu = fileMenu
+        mainMenu.addItem(fileItem)
+
+        // Edit
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(NSMenuItem(title: "Undo",         action: Selector(("undo:")),                keyEquivalent: "z"))
@@ -199,7 +239,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
+        // View
+        let viewItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+        let toggleSidebar = NSMenuItem(title: "Toggle Sidebar",
+                                       action: Selector(("toggleSidebar:")),
+                                       keyEquivalent: "s")
+        toggleSidebar.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(toggleSidebar)
+        viewMenu.addItem(NSMenuItem.separator())
+        let fullScreen = NSMenuItem(title: "Enter Full Screen",
+                                    action: #selector(NSWindow.toggleFullScreen(_:)),
+                                    keyEquivalent: "f")
+        fullScreen.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(fullScreen)
+        viewItem.submenu = viewMenu
+        mainMenu.addItem(viewItem)
+
+        // Window
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(NSMenuItem(title: "Minimize",
+                                      action: #selector(NSWindow.performMiniaturize(_:)),
+                                      keyEquivalent: "m"))
+        windowMenu.addItem(NSMenuItem(title: "Zoom",
+                                      action: #selector(NSWindow.performZoom(_:)),
+                                      keyEquivalent: ""))
+        windowMenu.addItem(NSMenuItem.separator())
+        windowMenu.addItem(NSMenuItem(title: "Bring All to Front",
+                                      action: #selector(NSApplication.arrangeInFront(_:)),
+                                      keyEquivalent: ""))
+        windowItem.submenu = windowMenu
+        mainMenu.addItem(windowItem)
+        NSApp.windowsMenu = windowMenu
+
         NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func openMainWindowFromMenu() {
+        NotificationCenter.default.post(name: .pulleyOpenMainWindow, object: nil)
+    }
+
+    @objc private func syncFromMenu() {
+        store.sync()
+    }
+
+    @objc private func openSettingsFromMenu() {
+        NotificationCenter.default.post(name: .pulleyOpenSettings, object: nil)
     }
 
     @objc func togglePopover(_ sender: Any?) {

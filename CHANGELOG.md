@@ -8,6 +8,40 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-28
+
+### Changed
+- Main window redesigned: sidebar removed in favor of a single
+  horizontal **HeaderBar** with uniform status tabs (All / Changes /
+  Review / Approved / Open), an inline search field, a "synced X ago"
+  readout, the PR count, and the group picker. When more than one org
+  is configured, org tabs render on a second row.
+- Body simplified to a two-pane `HSplitView` (list | detail) with the
+  detail pane sized larger by default; list pane has a max width so
+  detail dominates as the window grows.
+- PR list grouping refreshed: group headers carry a status- or
+  repo-colored accent dot, a tighter monospaced label, and a small
+  count chip; clean breathing room between groups.
+
+### Added
+- Native `NSToolbar` carries the sync and settings affordances as
+  standard bordered toolbar items. The sync icon swaps to a spinner
+  glyph (and disables) while a sync is in flight; tooltip stays current
+  via Combine subscriptions to `store.$syncing` / `store.$lastSync`.
+- PR rows surface CI actions inline: the checks chip is now a toggle
+  that expands a per-check list (name + per-check status glyph + state
+  label + open-in-browser affordance) directly beneath the row.
+- Full app menu bar (App, File, Edit, View, Window) installed so
+  ⌘W / ⌘M / ⌘O / ⌘R / ⌘, / standard text-editing shortcuts and
+  Hide / Show All / Full Screen all work while the main window is up.
+
+### Fixed
+- PR rows no longer bleed past the list pane's leading edge on narrow
+  splits — title gains a flexible frame with leading priority, repo /
+  branch labels truncate gracefully, and the row clips to its bounds.
+  Switched `LazyVStack` to leading alignment so over-wide rows extend
+  rightward (clipped) instead of being centered and bleeding both sides.
+
 ## [1.2.0] - 2026-05-22
 
 ### Added

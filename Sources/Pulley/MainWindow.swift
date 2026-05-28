@@ -1,25 +1,28 @@
 import AppKit
 import SwiftUI
+import Combine
 
-/// Lazy-allocated main window. The app stays a menu-bar `.accessory`; this
-/// window is opened on demand from the popover (`⌘O` or the window button)
-/// and offers depth that doesn't fit in the popover: detail pane, future
-/// files / diff / comments / review-action tabs.
+/// Lazy-allocated main window. The app normally runs as a menu-bar
+/// `.accessory`; while this window is showing we flip the activation policy
+/// to `.regular` so it behaves like a real app — dock icon, app menu,
+/// keyboard focus, Cmd-Tab. On close we drop back to `.accessory`.
 @MainActor
-final class MainWindowController: NSWindowController, NSWindowDelegate {
+final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     private let store: Store
+    private var cancellables: Set<AnyCancellable> = []
+    private weak var syncItem: NSToolbarItem?
 
     init(store: Store) {
         self.store = store
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Pulley"
-        window.minSize = NSSize(width: 1200, height: 720)
+        window.minSize = NSSize(width: 900, height: 560)
         window.center()
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = false
@@ -30,14 +33,114 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.contentViewController = NSHostingController(
             rootView: MainWindowView().environmentObject(store)
         )
+
+        // Native toolbar carries sync + settings; the in-content HeaderBar
+        // owns filters, search, group picker, and the sync-time readout.
+        let toolbar = NSToolbar(identifier: "PulleyMainToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
+
+        store.$syncing
+            .receive(on: RunLoop.main)
+            .sink { [weak self] syncing in
+                self?.updateSyncItem(syncing: syncing)
+            }
+            .store(in: &cancellables)
+
+        store.$lastSync
+            .receive(on: RunLoop.main)
+            .sink { [weak self] last in
+                self?.syncItem?.toolTip = relativeSyncLabel(last)
+            }
+            .store(in: &cancellables)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
     func show() {
+        NSApp.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    func windowWillClose(_ notification: Notification) {
+        // Drop back to menu-bar-only on close. Defer one runloop tick so
+        // AppKit finishes the close transition before we hide the dock icon.
+        DispatchQueue.main.async {
+            NSApp.setActivationPolicy(.accessory)
+        }
+    }
+
+    // MARK: NSToolbarDelegate
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, .pulleySync, .pulleySettings]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, .space, .pulleySync, .pulleySettings]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier id: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        switch id {
+        case .pulleySync:
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.label = "Sync"
+            item.paletteLabel = "Sync"
+            item.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Sync")
+            item.target = self
+            item.action = #selector(toolbarSync)
+            item.toolTip = relativeSyncLabel(store.lastSync)
+            item.isBordered = true
+            syncItem = item
+            return item
+        case .pulleySettings:
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.label = "Settings"
+            item.paletteLabel = "Settings"
+            item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
+            item.target = self
+            item.action = #selector(toolbarOpenSettings)
+            item.toolTip = "Settings"
+            item.isBordered = true
+            return item
+        default:
+            return nil
+        }
+    }
+
+    @objc private func toolbarSync() {
+        store.sync()
+    }
+
+    @objc private func toolbarOpenSettings() {
+        NotificationCenter.default.post(name: .pulleyMainOpenSettings, object: nil)
+    }
+
+    private func updateSyncItem(syncing: Bool) {
+        guard let item = syncItem else { return }
+        item.isEnabled = !syncing
+        let name = syncing ? "arrow.triangle.2.circlepath" : "arrow.clockwise"
+        item.image = NSImage(systemSymbolName: name, accessibilityDescription: syncing ? "Syncing" : "Sync")
+    }
+}
+
+extension NSToolbarItem.Identifier {
+    static let pulleySync     = NSToolbarItem.Identifier("PulleySync")
+    static let pulleySettings = NSToolbarItem.Identifier("PulleySettings")
+}
+
+extension Notification.Name {
+    /// Sent by the main window's toolbar gear so `MainWindowView` can present
+    /// its settings sheet. Distinct from `.pulleyOpenSettings` (popover-only).
+    static let pulleyMainOpenSettings = Notification.Name("PulleyMainOpenSettings")
 }
 
 /// Sidebar filter modes — distinct from `Scope` because `Scope` is a global
@@ -58,12 +161,12 @@ enum SidebarFilter: Hashable, Identifiable {
 
     var label: String {
         switch self {
-        case .all:             return "All PRs"
-        case .status(.changes): return "Changes requested"
+        case .all:               return "All"
+        case .status(.changes):  return "Changes requested"
         case .status(.approved): return "Approved"
-        case .status(.review):  return "In review"
-        case .status(.open):    return "Open"
-        case .org(let o):       return o
+        case .status(.review):   return "In review"
+        case .status(.open):     return "Open"
+        case .org(let o):        return o
         }
     }
 
@@ -85,6 +188,7 @@ struct MainWindowView: View {
     @State private var selectedPRID: String? = nil
     @State private var query: String = ""
     @State private var showSettings: Bool = false
+    @State private var groupMode: ListGroupMode = .none
 
     private var filtered: [PR] {
         let base: [PR]
@@ -106,21 +210,34 @@ struct MainWindowView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(filter: $filter, showSettings: $showSettings)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
-        } content: {
-            PRListPane(
-                prs: filtered,
-                selectedPRID: $selectedPRID,
-                query: $query
+        VStack(spacing: 0) {
+            HeaderBar(
+                filter: $filter,
+                query: $query,
+                groupMode: $groupMode,
+                prs: store.prs,
+                filteredCount: filtered.count,
+                lastSync: store.lastSync,
+                syncing: store.syncing
             )
-            .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 420)
-        } detail: {
-            if let pr = selectedPR {
-                PRDetailPane(pr: pr)
-            } else {
-                EmptyDetail()
+
+            HSplitView {
+                PRListPane(
+                    prs: filtered,
+                    selectedPRID: $selectedPRID,
+                    groupMode: $groupMode,
+                    filter: filter
+                )
+                .frame(minWidth: 340, idealWidth: 440, maxWidth: 520)
+
+                Group {
+                    if let pr = selectedPR {
+                        PRDetailPane(pr: pr)
+                    } else {
+                        EmptyDetail()
+                    }
+                }
+                .frame(minWidth: 480, idealWidth: 760)
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -128,128 +245,329 @@ struct MainWindowView: View {
                 .environmentObject(store)
                 .frame(width: 560, height: 640)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .pulleyMainOpenSettings)) { _ in
+            showSettings = true
+        }
     }
 }
 
-// MARK: - Sidebar
+// MARK: - Header bar
 
-private struct SidebarView: View {
-    @EnvironmentObject var store: Store
+/// Single-row tab-bar header: status tabs left, search + count + group right.
+/// Optional second row for org tabs when more than one org is configured.
+private struct HeaderBar: View {
     @Binding var filter: SidebarFilter
-    @Binding var showSettings: Bool
+    @Binding var query: String
+    @Binding var groupMode: ListGroupMode
+    let prs: [PR]
+    let filteredCount: Int
+    let lastSync: Date?
+    let syncing: Bool
     @State private var nowTick: Date = Date()
 
-    private var orgs: [String] {
-        Array(Set(store.prs.map { $0.org })).sorted()
+    private var statusCounts: [PRStatus: Int] {
+        Dictionary(grouping: prs, by: { $0.status }).mapValues(\.count)
+    }
+
+    private var orgs: [(name: String, count: Int)] {
+        let grouped = Dictionary(grouping: prs, by: { $0.org })
+        return grouped.keys.sorted().map { (name: $0, count: grouped[$0]?.count ?? 0) }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            List(selection: $filter) {
-                Section("Views") {
-                    row(.all, count: store.prs.count)
-                    row(.status(.changes), count: store.prs.filter { $0.status == .changes }.count)
-                    row(.status(.review), count: store.prs.filter { $0.status == .review }.count)
-                    row(.status(.approved), count: store.prs.filter { $0.status == .approved }.count)
-                    row(.status(.open), count: store.prs.filter { $0.status == .open }.count)
-                }
-                if orgs.count > 1 {
-                    Section("Orgs") {
-                        ForEach(orgs, id: \.self) { org in
-                            row(.org(org), count: store.prs.filter { $0.org == org }.count)
-                        }
-                    }
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            mainRow
+            if orgs.count > 1 {
+                orgRow
             }
-            .listStyle(.sidebar)
-
-            footer
         }
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(Color(NSColor.windowBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 0.5)
+        }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
             nowTick = Date()
         }
     }
 
-    private var footer: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.08))
-                .frame(height: 0.5)
-            HStack(spacing: 10) {
+    private var mainRow: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 3) {
+                FilterTab(
+                    label: "All",
+                    count: prs.count,
+                    dot: .accentColor,
+                    isSelected: filter == .all
+                ) { filter = .all }
+
+                FilterTab(
+                    label: "Changes",
+                    count: statusCounts[.changes] ?? 0,
+                    dot: .red,
+                    isSelected: filter == .status(.changes)
+                ) { filter = .status(.changes) }
+
+                FilterTab(
+                    label: "Review",
+                    count: statusCounts[.review] ?? 0,
+                    dot: .orange,
+                    isSelected: filter == .status(.review)
+                ) { filter = .status(.review) }
+
+                FilterTab(
+                    label: "Approved",
+                    count: statusCounts[.approved] ?? 0,
+                    dot: .green,
+                    isSelected: filter == .status(.approved)
+                ) { filter = .status(.approved) }
+
+                FilterTab(
+                    label: "Open",
+                    count: statusCounts[.open] ?? 0,
+                    dot: .blue,
+                    isSelected: filter == .status(.open)
+                ) { filter = .status(.open) }
+            }
+
+            Spacer(minLength: 12)
+
+            searchField
+            syncStatus
+            countLabel
+            groupPicker
+        }
+    }
+
+    private var syncStatus: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(syncing ? Color.orange : Color.green.opacity(0.85))
+                .frame(width: 5, height: 5)
+            Text(relativeSyncLabel(lastSync, now: nowTick))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .help(syncing ? "Syncing…" : (lastSync.map { "Last sync: \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "Never synced"))
+    }
+
+    private var orgRow: some View {
+        HStack(spacing: 6) {
+            Spacer(minLength: 0)
+            ForEach(orgs, id: \.name) { o in
+                OrgPill(
+                    name: o.name,
+                    count: o.count,
+                    isSelected: filter == .org(o.name)
+                ) { filter = .org(o.name) }
+            }
+        }
+    }
+
+    private var countLabel: some View {
+        HStack(spacing: 3) {
+            Text("\(filteredCount)")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(.secondary)
+            Text("PRs")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.6))
+        }
+        .fixedSize()
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.7))
+            TextField("Filter", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+        .frame(minWidth: 140, idealWidth: 220, maxWidth: 260)
+    }
+
+    private var groupPicker: some View {
+        Menu {
+            ForEach(ListGroupMode.allCases) { m in
                 Button {
-                    store.sync()
+                    groupMode = m
                 } label: {
-                    Group {
-                        if store.syncing {
-                            ProgressView()
-                                .controlSize(.small)
-                                .scaleEffect(0.7)
-                                .frame(width: 14, height: 14)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.secondary)
+                    HStack {
+                        Image(systemName: m.icon)
+                        Text(m.label)
+                        if groupMode == m {
+                            Image(systemName: "checkmark")
                         }
                     }
-                    .frame(width: 18, height: 18)
                 }
-                .buttonStyle(.plain)
-                .disabled(store.syncing)
-                .help("Sync now (⌘R)")
-                .keyboardShortcut("r", modifiers: .command)
-
-                Text(syncLabel)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Spacer(minLength: 4)
-
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .frame(width: 18, height: 18)
-                }
-                .buttonStyle(.plain)
-                .help("Settings (⌘,)")
-                .keyboardShortcut(",", modifiers: .command)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: groupMode.icon)
+                    .font(.system(size: 10, weight: .medium))
+                Text(groupMode.label)
+                    .font(.system(size: 11, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+            )
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Group PRs")
     }
+}
 
-    private var syncLabel: String {
-        guard let last = store.lastSync else { return "never synced" }
-        _ = nowTick
-        let s = Int(Date().timeIntervalSince(last))
-        if s < 60      { return "synced now" }
-        if s < 3600    { return "synced \(s / 60)m ago" }
-        if s < 86400   { return "synced \(s / 3600)h ago" }
-        return "synced \(s / 86400)d ago"
-    }
+/// Uniform compact tab. Status-color dot + label + count. Active gets a
+/// soft tint matching the dot; hover gives a faint neutral fill.
+private struct FilterTab: View {
+    let label: String
+    let count: Int
+    let dot: Color
+    let isSelected: Bool
+    let onTap: () -> Void
+    @State private var hovered = false
 
-    @ViewBuilder
-    private func row(_ f: SidebarFilter, count: Int) -> some View {
-        Label {
-            HStack {
-                Text(f.label)
-                Spacer()
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(dot)
+                    .frame(width: 6, height: 6)
+                    .opacity(isSelected ? 1 : 0.75)
+                Text(label)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(labelColor)
+                    .fixedSize()
                 if count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(countColor)
+                        .fixedSize()
                 }
             }
-        } icon: {
-            Image(systemName: f.systemImage)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(background)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(stroke, lineWidth: 0.5)
+            )
+            .contentShape(Rectangle())
         }
-        .tag(f)
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .animation(.easeOut(duration: 0.1), value: isSelected)
+        .animation(.easeOut(duration: 0.1), value: hovered)
     }
+
+    private var labelColor: Color {
+        if isSelected { return .primary }
+        if hovered    { return .primary.opacity(0.85) }
+        return .secondary.opacity(0.85)
+    }
+
+    private var countColor: Color {
+        isSelected ? .secondary.opacity(0.9) : .secondary.opacity(0.55)
+    }
+
+    private var background: Color {
+        if isSelected { return dot.opacity(0.13) }
+        if hovered    { return Color.primary.opacity(0.06) }
+        return .clear
+    }
+
+    private var stroke: Color {
+        isSelected ? dot.opacity(0.3) : .clear
+    }
+}
+
+private struct OrgPill: View {
+    let name: String
+    let count: Int
+    let isSelected: Bool
+    let onTap: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(colorForRepo(name))
+                    .frame(width: 5, height: 5)
+                Text(name.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(1.0)
+                    .foregroundColor(isSelected ? .primary : .secondary.opacity(0.8))
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.6))
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().fill(pillBackground)
+            )
+            .overlay(
+                Capsule().stroke(pillStroke, lineWidth: 0.5)
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+    }
+
+    private var pillBackground: Color {
+        if isSelected { return colorForRepo(name).opacity(0.18) }
+        if hovered    { return Color.primary.opacity(0.05) }
+        return .clear
+    }
+
+    private var pillStroke: Color {
+        isSelected
+            ? colorForRepo(name).opacity(0.35)
+            : Color.primary.opacity(0.1)
+    }
+}
+
+private func relativeSyncLabel(_ lastSync: Date?, now: Date = Date()) -> String {
+    guard let last = lastSync else { return "never synced" }
+    let s = Int(now.timeIntervalSince(last))
+    if s < 60     { return "synced now" }
+    if s < 3600   { return "synced \(s / 60)m ago" }
+    if s < 86400  { return "synced \(s / 3600)h ago" }
+    return "synced \(s / 86400)d ago"
 }
 
 // MARK: - List pane
@@ -257,82 +575,72 @@ private struct SidebarView: View {
 private struct PRListPane: View {
     let prs: [PR]
     @Binding var selectedPRID: String?
-    @Binding var query: String
-    @State private var groupMode: ListGroupMode = .none
+    @Binding var groupMode: ListGroupMode
+    let filter: SidebarFilter
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("Filter…", text: $query)
-                    .textFieldStyle(.plain)
-
-                Menu {
-                    ForEach(ListGroupMode.allCases) { m in
-                        Button {
-                            groupMode = m
-                        } label: {
-                            HStack {
-                                Image(systemName: m.icon)
-                                Text(m.label)
-                                if groupMode == m {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: groupMode.icon)
-                            .font(.system(size: 11, weight: .medium))
-                        Text(groupMode.label)
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.primary.opacity(0.06))
-                    )
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Group PRs")
-            }
-            .padding(8)
-            .background(Color.primary.opacity(0.04))
-
-            Divider()
-
+        Group {
             if prs.isEmpty {
-                Text("No PRs match.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyState
             } else {
-                List(selection: $selectedPRID) {
-                    if groupMode == .none {
-                        ForEach(prs) { pr in
-                            WindowPRRow(pr: pr)
-                                .tag(pr.id)
+                listBody
+            }
+        }
+        .background(Color(NSColor.textBackgroundColor))
+    }
+
+    // MARK: Empty
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "tray")
+                .font(.system(size: 32, weight: .light))
+                .foregroundColor(.secondary.opacity(0.45))
+            Text("Nothing here")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.secondary)
+            Text("Try a different filter or sync.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: List
+
+    @ViewBuilder
+    private var listBody: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if groupMode == .none {
+                    ForEach(Array(prs.enumerated()), id: \.element.id) { idx, pr in
+                        WindowPRRow(
+                            pr: pr,
+                            isSelected: selectedPRID == pr.id,
+                            onSelect: { selectedPRID = pr.id }
+                        )
+                        if idx < prs.count - 1 {
+                            Divider().opacity(0.35).padding(.leading, 18)
                         }
-                    } else {
-                        ForEach(groupedPRs(), id: \.key) { group in
-                            Section {
-                                ForEach(group.prs) { pr in
-                                    WindowPRRow(pr: pr)
-                                        .tag(pr.id)
+                    }
+                } else {
+                    ForEach(Array(groupedPRs().enumerated()), id: \.element.key) { gIdx, group in
+                        Section {
+                            ForEach(Array(group.prs.enumerated()), id: \.element.id) { idx, pr in
+                                WindowPRRow(
+                                    pr: pr,
+                                    isSelected: selectedPRID == pr.id,
+                                    onSelect: { selectedPRID = pr.id }
+                                )
+                                if idx < group.prs.count - 1 {
+                                    Divider().opacity(0.35).padding(.leading, 18)
                                 }
-                            } header: {
-                                groupHeader(group)
                             }
+                        } header: {
+                            groupHeader(group, isFirst: gIdx == 0)
                         }
                     }
                 }
-                .listStyle(.plain)
             }
         }
     }
@@ -344,39 +652,45 @@ private struct PRListPane: View {
     }
 
     @ViewBuilder
-    private func groupHeader(_ group: PRGroup) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: groupMode.icon)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.accentColor)
-                .frame(width: 12)
+    private func groupHeader(_ group: PRGroup, isFirst: Bool) -> some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(groupAccent(group))
+                .frame(width: 7, height: 7)
             Text(group.label)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.primary)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .tracking(0.6)
+                .foregroundColor(.primary.opacity(0.9))
                 .lineLimit(1)
-            Spacer()
             Text("\(group.prs.count)")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(Color.primary.opacity(0.12)))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.8))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1.5)
+                .background(Capsule().fill(Color.primary.opacity(0.07)))
+            Spacer()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 18)
+        .padding(.top, isFirst ? 10 : 20)
+        .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.06))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.14))
-                .frame(height: 0.5)
-        }
+        .background(Color(NSColor.textBackgroundColor))
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Color.primary.opacity(0.08))
+                .fill(Color.primary.opacity(0.07))
                 .frame(height: 0.5)
         }
-        .listRowInsets(EdgeInsets())
+    }
+
+    private func groupAccent(_ group: PRGroup) -> Color {
+        switch groupMode {
+        case .none:
+            return .accentColor
+        case .status:
+            return group.prs.first.map { statusColor($0.status) } ?? .accentColor
+        case .repo, .org:
+            return colorForRepo(group.label)
+        }
     }
 
     private func groupedPRs() -> [PRGroup] {
@@ -424,10 +738,10 @@ private enum ListGroupMode: String, CaseIterable, Identifiable {
     }
     var icon: String {
         switch self {
-        case .none:   return "list.bullet"
-        case .status: return "circle.hexagongrid.fill"
-        case .repo:   return "folder.fill"
-        case .org:    return "building.2.fill"
+        case .none:   return "line.3.horizontal"
+        case .status: return "circle.hexagongrid"
+        case .repo:   return "folder"
+        case .org:    return "building.2"
         }
     }
 }
@@ -443,29 +757,425 @@ private extension PRStatus {
     }
 }
 
+// MARK: - Row
+
 private struct WindowPRRow: View {
     let pr: PR
+    let isSelected: Bool
+    let onSelect: () -> Void
+    @State private var hovered = false
+    @State private var copied = false
+    @State private var checkingOut = false
+    @State private var checksExpanded = false
+
+    private var actionsVisible: Bool { hovered || isSelected || checkingOut }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(pr.title)
-                .font(.system(size: 13, weight: .medium))
-                .lineLimit(2)
-            HStack(spacing: 6) {
-                Text("\(pr.org)/\(pr.repo)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
-                Text("#\(pr.number)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.6))
-                Spacer()
+        HStack(spacing: 0) {
+            statusBar
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(rowBackground)
+        .contentShape(Rectangle())
+        .clipped()
+        .onHover { hovered = $0 }
+        .onTapGesture { onSelect() }
+    }
+
+    private var statusBar: some View {
+        Rectangle()
+            .fill(statusColor(pr.status))
+            .frame(width: 3)
+            .opacity(isSelected ? 1 : (statusEmphasized ? 0.85 : 0.6))
+    }
+
+    private var statusEmphasized: Bool {
+        pr.status == .changes || pr.status == .approved
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(pr.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+                    .help(pr.title)
+
+                actionStrip
+                    .opacity(actionsVisible ? 1 : 0)
+                    .allowsHitTesting(actionsVisible)
+
                 Text(relativeWindowTime(pr.updatedAt))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.85))
+                    .frame(width: 44, alignment: .trailing)
+                    .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+            }
+
+            HStack(spacing: 8) {
+                statusChip
+                if !pr.checks.isEmpty {
+                    checksChip
+                }
+                if pr.mergeableState.isActionable {
+                    mergeChip
+                }
+                if pr.isDraft {
+                    draftChip
+                }
+
+                repoLabel
+
+                if !pr.branch.isEmpty {
+                    branchInline
+                }
+
+                Spacer(minLength: 0)
+
+                Text("#\(pr.number)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.55))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+
+            if checksExpanded && !pr.checks.isEmpty {
+                ChecksInline(checks: pr.checks)
+                    .padding(.top, 4)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(.vertical, 3)
+        .padding(.horizontal, 15)
+        .padding(.vertical, 11)
     }
+
+    // MARK: chips
+
+    private var statusChip: some View {
+        Text(pr.status.label.lowercased())
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundColor(statusColor(pr.status))
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(statusColor(pr.status).opacity(0.13))
+            )
+            .fixedSize()
+    }
+
+    private var checksChip: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.12)) { checksExpanded.toggle() }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: checkGlyph(pr.checkStatus))
+                    .font(.system(size: 9, weight: .semibold))
+                Text("\(pr.checks.count)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                Image(systemName: checksExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundColor(checkColor(pr.checkStatus).opacity(0.7))
+            }
+            .foregroundColor(checkColor(pr.checkStatus))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(checkColor(pr.checkStatus).opacity(0.12)))
+            .overlay(
+                Capsule().stroke(checkColor(pr.checkStatus).opacity(checksExpanded ? 0.4 : 0), lineWidth: 0.5)
+            )
+            .fixedSize()
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("CI: \(pr.checkStatus.label) — \(pr.checks.count) checks")
+    }
+
+    private var mergeChip: some View {
+        let c = mergeableColor(pr.mergeableState)
+        return HStack(spacing: 3) {
+            Image(systemName: mergeableGlyph(pr.mergeableState))
+                .font(.system(size: 9, weight: .semibold))
+            Text(pr.mergeableState.label)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+        }
+        .foregroundColor(c)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(c.opacity(0.12)))
+        .fixedSize()
+    }
+
+    private var draftChip: some View {
+        Text("draft")
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundColor(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(0.07)))
+            .fixedSize()
+    }
+
+    private var repoLabel: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(colorForRepo(pr.repo))
+                .frame(width: 6, height: 6)
+            (Text(pr.org + "/").foregroundColor(.secondary.opacity(0.6))
+             + Text(pr.repo).foregroundColor(.secondary))
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: 150, alignment: .leading)
+        .help("\(pr.org)/\(pr.repo)")
+    }
+
+    private var branchInline: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 10))
+                .layoutPriority(1)
+            Text(pr.branch)
+                .font(.system(size: 11, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(pr.branch)
+        }
+        .foregroundColor(.secondary.opacity(0.75))
+        .frame(maxWidth: 110, alignment: .leading)
+    }
+
+    // MARK: action strip
+
+    private var actionStrip: some View {
+        HStack(spacing: 2) {
+            RowIconButton(
+                icon: "doc.on.doc",
+                help: copied ? "Copied" : "Copy branch",
+                tint: copied ? .green : nil,
+                disabled: pr.branch.isEmpty
+            ) {
+                PRActions.copyToPasteboard(pr.branch)
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { copied = false }
+            }
+
+            if checkingOut {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.65)
+                    .frame(width: 22, height: 20)
+                    .help("Setting up worktree…")
+            } else {
+                RowIconButton(
+                    icon: ideGlyph,
+                    help: "Open in \(Config.preferredIDE.displayName)"
+                ) {
+                    checkingOut = true
+                    PRActions.checkoutAndOpen(pr: pr) { checkingOut = false }
+                }
+            }
+        }
+    }
+
+    private var ideGlyph: String {
+        // Use a generic editor glyph; the IDE-specific NSImage is too heavy
+        // for a row affordance.
+        "chevron.left.forwardslash.chevron.right"
+    }
+
+    // MARK: state
+
+    private var rowBackground: Color {
+        if isSelected { return Color.accentColor.opacity(0.09) }
+        if hovered    { return Color.primary.opacity(0.04) }
+        return .clear
+    }
+}
+
+// MARK: - Inline checks list
+
+private struct ChecksInline: View {
+    let checks: [CheckRun]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(checks) { c in
+                ChecksInlineRow(check: c)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Color.primary.opacity(0.035))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+}
+
+private struct ChecksInlineRow: View {
+    let check: CheckRun
+    @State private var hovered = false
+
+    var body: some View {
+        Button {
+            if let url = check.url { PRActions.openInBrowser(url) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: checkGlyph(check.rolled))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(checkColor(check.rolled))
+                    .frame(width: 12)
+                Text(check.name)
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 6)
+                Text(stateLabel)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(checkColor(check.rolled).opacity(0.9))
+                if check.url != nil {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary.opacity(hovered ? 0.9 : 0.35))
+                }
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(hovered ? Color.primary.opacity(0.05) : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .disabled(check.url == nil)
+        .help(check.url == nil ? check.name : "\(check.name) — open")
+    }
+
+    private var stateLabel: String {
+        if check.status != "completed" {
+            return check.status.replacingOccurrences(of: "_", with: " ")
+        }
+        return check.conclusion ?? "completed"
+    }
+}
+
+// MARK: - Row icon button
+
+private struct RowIconButton: View {
+    let icon: String
+    let help: String
+    var tint: Color? = nil
+    var disabled: Bool = false
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 22, height: 20)
+                .foregroundColor(foreground)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(hovered && !disabled ? Color.primary.opacity(0.1) : .clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .disabled(disabled)
+        .help(help)
+    }
+
+    private var foreground: Color {
+        if disabled { return .secondary.opacity(0.4) }
+        if let tint = tint { return tint }
+        return hovered ? .primary : .secondary.opacity(0.8)
+    }
+}
+
+// MARK: - Helpers
+
+private func statusColor(_ s: PRStatus) -> Color {
+    switch s {
+    case .changes:  return .red
+    case .approved: return .green
+    case .review:   return .orange
+    case .open:     return .blue
+    }
+}
+
+private func checkColor(_ s: CheckStatus) -> Color {
+    switch s {
+    case .success: return .green
+    case .failure: return .red
+    case .pending: return .orange
+    case .neutral, .none: return .secondary
+    }
+}
+
+private func checkGlyph(_ s: CheckStatus) -> String {
+    switch s {
+    case .success: return "checkmark.circle.fill"
+    case .failure: return "xmark.octagon.fill"
+    case .pending: return "clock.fill"
+    case .neutral: return "minus.circle.fill"
+    case .none:    return "circle"
+    }
+}
+
+private func mergeableColor(_ s: MergeableState) -> Color {
+    switch s {
+    case .dirty, .blocked: return .red
+    case .behind:          return .orange
+    case .unstable:        return .yellow
+    default:               return .secondary
+    }
+}
+
+private func mergeableGlyph(_ s: MergeableState) -> String {
+    switch s {
+    case .dirty:    return "exclamationmark.triangle.fill"
+    case .behind:   return "arrow.down.circle.fill"
+    case .blocked:  return "lock.fill"
+    case .unstable: return "exclamationmark.circle.fill"
+    default:        return "circle"
+    }
+}
+
+private func relativeWindowTime(_ date: Date) -> String {
+    let s = Int(Date().timeIntervalSince(date))
+    if s < 60      { return "now" }
+    if s < 3600    { return "\(s / 60)m" }
+    if s < 86400   { return "\(s / 3600)h" }
+    let d = s / 86400
+    if d < 30      { return "\(d)d" }
+    if d < 365     { return "\(d / 30)mo" }
+    return "\(d / 365)y"
+}
+
+private func colorForRepo(_ repo: String) -> Color {
+    var h: UInt64 = 5381
+    for byte in repo.utf8 { h = (h &* 33) &+ UInt64(byte) }
+    let hue = Double(h % 360) / 360.0
+    return Color(hue: hue, saturation: 0.55, brightness: 0.85)
 }
 
 // MARK: - Detail pane
@@ -479,91 +1189,108 @@ private struct PRDetailPane: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(statusColorForDetail(pr.status))
-                    .frame(height: 3)
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    statusBar
-                    actionBar
+            VStack(alignment: .leading, spacing: 22) {
+                header
+                statusRow
+                actionRow
 
-                    card {
-                        VStack(alignment: .leading, spacing: 14) {
-                            sectionLabel("Description")
-                            bodySection
-                        }
-                    }
+                divider
 
-                    if !pr.checks.isEmpty {
-                        card {
-                            VStack(alignment: .leading, spacing: 14) {
-                                sectionLabel("Checks")
-                                checksSection
-                            }
-                        }
+                section("Description") {
+                    bodySection
+                }
+
+                if !pr.checks.isEmpty {
+                    divider
+                    section("Checks · \(pr.checks.count)") {
+                        checksSection
                     }
                 }
-                .padding(.horizontal, 32)
-                .padding(.top, 24)
-                .padding(.bottom, 40)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 40)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(Color(NSColor.textBackgroundColor))
         .onAppear(perform: loadBody)
         .onChange(of: pr.id) { _ in loadBody() }
     }
 
-    private var header: some View {
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(height: 0.5)
+    }
+
+    @ViewBuilder
+    private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(1.4)
+                .foregroundColor(.secondary.opacity(0.75))
+            content()
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
             Text(pr.title)
-                .font(.system(size: 26, weight: .semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .textSelection(.enabled)
-                .lineSpacing(2)
+                .lineSpacing(1)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
                 Text("\(pr.org)/\(pr.repo)")
-                    .font(.system(size: 13, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Text("#\(pr.number)")
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(.accentColor)
+                    .fixedSize()
                 if !pr.branch.isEmpty {
                     BranchPill(branch: pr.branch)
                 }
+                Spacer(minLength: 0)
             }
         }
     }
 
-    private var statusBar: some View {
-        HStack(spacing: 8) {
-            StatusBadge(text: pr.status.label, color: statusColorForDetail(pr.status), filled: true)
-            if pr.isDraft {
-                StatusBadge(text: "draft", color: .secondary, filled: false)
+    private var statusRow: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                StatusBadge(text: pr.status.label, color: statusColor(pr.status), filled: true)
+                if pr.isDraft {
+                    StatusBadge(text: "draft", color: .secondary, filled: false)
+                }
+                if pr.checkStatus != .none {
+                    StatusBadge(
+                        text: "CI · \(pr.checkStatus.label)",
+                        color: checkColor(pr.checkStatus),
+                        filled: false
+                    )
+                }
+                if pr.mergeableState.isActionable {
+                    StatusBadge(
+                        text: pr.mergeableState.label,
+                        color: mergeableColor(pr.mergeableState),
+                        filled: false
+                    )
+                }
+                Spacer(minLength: 0)
             }
-            if pr.checkStatus != .none {
-                StatusBadge(
-                    text: "CI · \(pr.checkStatus.label)",
-                    color: checkColor(pr.checkStatus),
-                    filled: false
-                )
-            }
-            if pr.mergeableState.isActionable {
-                StatusBadge(
-                    text: pr.mergeableState.label,
-                    color: mergeableColor(pr.mergeableState),
-                    filled: false
-                )
-            }
-            Spacer()
             Text("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.secondary)
+                .foregroundColor(.secondary.opacity(0.7))
+                .lineLimit(1)
         }
     }
 
-    private var actionBar: some View {
+    private var actionRow: some View {
         HStack(spacing: 8) {
             DetailActionButton(
                 title: "Open in \(Config.preferredIDE.displayName)",
@@ -586,45 +1313,35 @@ private struct PRDetailPane: View {
             }
             .help("Open PR in browser")
 
+            if !pr.branch.isEmpty {
+                DetailActionButton(
+                    title: "Copy branch",
+                    systemImage: "doc.on.doc",
+                    style: .secondary
+                ) {
+                    PRActions.copyToPasteboard(pr.branch)
+                }
+                .help("Copy branch name")
+            }
+
             Spacer()
         }
-    }
-
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .tracking(1.5)
-            .foregroundColor(.secondary)
-    }
-
-    @ViewBuilder
-    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        content()
-            .padding(.horizontal, 20)
-            .padding(.vertical, 18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(0.035))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
-            )
     }
 
     @ViewBuilder
     private var bodySection: some View {
         if loading {
-            HStack {
+            HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text("Loading description…")
+                    .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
         } else if let err = loadError {
             Text(err).foregroundColor(.red).font(.system(size: 12))
         } else if descriptionText.isEmpty {
             Text("No description.")
+                .font(.system(size: 13))
                 .foregroundColor(.secondary)
                 .italic()
         } else {
@@ -633,42 +1350,34 @@ private struct PRDetailPane: View {
     }
 
     private var checksSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             ForEach(pr.checks) { c in
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(checkColor(c.rolled).opacity(0.15))
-                            .frame(width: 28, height: 28)
-                        Image(systemName: checkGlyph(c.rolled))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(checkColor(c.rolled))
-                    }
+                HStack(spacing: 11) {
+                    Image(systemName: checkGlyph(c.rolled))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(checkColor(c.rolled))
+                        .frame(width: 16)
                     Text(c.name)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 13))
                     Spacer()
                     Text(c.conclusion ?? c.status)
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundColor(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.primary.opacity(0.06)))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.primary.opacity(0.07)))
                     if let url = c.url {
                         Button {
                             PRActions.openInBrowser(url)
                         } label: {
                             Image(systemName: "arrow.up.right.square")
-                                .foregroundColor(.secondary)
+                                .foregroundColor(.secondary.opacity(0.65))
                         }
                         .buttonStyle(.borderless)
                     }
                 }
                 .padding(.vertical, 6)
-                .padding(.horizontal, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.primary.opacity(0.035))
-                )
+                .padding(.horizontal, 4)
             }
         }
     }
@@ -702,18 +1411,179 @@ private struct PRDetailPane: View {
     }
 }
 
+private struct EmptyDetail: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 36, weight: .light))
+                .foregroundColor(.secondary.opacity(0.35))
+            Text("Select a PR")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.secondary)
+            Text("Click or use ↑ ↓ to preview.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.textBackgroundColor))
+    }
+}
+
+// MARK: - Detail-pane chrome
+
+private struct StatusBadge: View {
+    let text: String
+    let color: Color
+    let filled: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundColor(filled ? .white : color)
+            .lineLimit(1)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().fill(filled ? color : color.opacity(0.15))
+            )
+            .overlay(
+                Capsule().stroke(
+                    filled ? Color.clear : color.opacity(0.35),
+                    lineWidth: 0.5
+                )
+            )
+            .fixedSize()
+    }
+}
+
+private struct BranchPill: View {
+    let branch: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 10))
+            Text(branch)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color.primary.opacity(0.06)))
+        .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+        .frame(maxWidth: 240, alignment: .leading)
+        .help(branch)
+    }
+}
+
+private struct DetailActionButton: View {
+    enum Style { case primary, secondary }
+
+    let title: String
+    let systemImage: String
+    let nsImage: NSImage?
+    let style: Style
+    let action: () -> Void
+
+    @State private var hovering = false
+    @State private var pressing = false
+
+    init(
+        title: String,
+        systemImage: String,
+        nsImage: NSImage? = nil,
+        style: Style,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.nsImage = nsImage
+        self.style = style
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                if let img = nsImage {
+                    Image(nsImage: img)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 15, height: 15)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, nsImage != nil ? 5 : 7)
+            .foregroundColor(textColor)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(fillColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(strokeColor, lineWidth: borderWidth)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .onHover { hovering = $0 }
+        .scaleEffect(pressing ? 0.97 : 1.0)
+        .animation(.easeOut(duration: 0.08), value: pressing)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in pressing = true }
+                .onEnded { _ in pressing = false }
+        )
+    }
+
+    private var fillColor: Color {
+        switch style {
+        case .primary:
+            return hovering ? Color.accentColor.opacity(0.88) : Color.accentColor
+        case .secondary:
+            return hovering ? Color.primary.opacity(0.08) : Color.primary.opacity(0.03)
+        }
+    }
+
+    private var strokeColor: Color {
+        switch style {
+        case .primary:   return Color.clear
+        case .secondary: return Color.primary.opacity(hovering ? 0.22 : 0.15)
+        }
+    }
+
+    private var borderWidth: CGFloat {
+        style == .primary ? 0 : 0.7
+    }
+
+    private var textColor: Color {
+        style == .primary ? .white : .primary
+    }
+}
+
 // MARK: - Markdown rendering
 
 private struct MarkdownView: View {
     let text: String
 
-    private static let bodyFont   = Font.system(size: 15, design: .serif)
-    private static let quoteFont  = Font.system(size: 15, design: .serif).italic()
-    private static let listFont   = Font.system(size: 14)
-    private static let codeFont   = Font.system(size: 13, design: .monospaced)
+    private static let bodyFont   = Font.system(size: 14, design: .serif)
+    private static let quoteFont  = Font.system(size: 14, design: .serif).italic()
+    private static let listFont   = Font.system(size: 13)
+    private static let codeFont   = Font.system(size: 12, design: .monospaced)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(parse(Emoji.substitute(HtmlPreprocess.apply(text))).enumerated()), id: \.offset) { _, block in
                 render(block)
             }
@@ -725,33 +1595,33 @@ private struct MarkdownView: View {
     private func render(_ block: MDBlock) -> some View {
         switch block {
         case .heading(let level, let s):
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(inline(s))
                     .font(headingFont(level))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if level <= 2 {
                     Rectangle()
-                        .fill(Color.primary.opacity(0.12))
-                        .frame(height: 1)
+                        .fill(Color.primary.opacity(0.1))
+                        .frame(height: 0.5)
                 }
             }
-            .padding(.top, level == 1 ? 10 : (level == 2 ? 6 : 2))
+            .padding(.top, level == 1 ? 8 : (level == 2 ? 4 : 2))
 
         case .paragraph(let s):
             Text(inline(s))
                 .font(Self.bodyFont)
-                .lineSpacing(5)
+                .lineSpacing(4)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
 
         case .bullet(let items):
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Circle()
-                            .fill(Color.secondary.opacity(0.7))
-                            .frame(width: 5, height: 5)
+                            .fill(Color.secondary.opacity(0.65))
+                            .frame(width: 4, height: 4)
                             .offset(y: -2)
                         Text(inline(item))
                             .font(Self.listFont)
@@ -763,11 +1633,11 @@ private struct MarkdownView: View {
             .padding(.leading, 4)
 
         case .ordered(let items):
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text("\(idx + 1).")
-                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
                             .foregroundColor(.secondary)
                         Text(inline(item))
                             .font(Self.listFont)
@@ -779,11 +1649,11 @@ private struct MarkdownView: View {
             .padding(.leading, 4)
 
         case .task(let items):
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 9) {
                         Image(systemName: item.0 ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 14))
+                            .font(.system(size: 13))
                             .foregroundColor(item.0 ? .accentColor : .secondary.opacity(0.7))
                         Text(inline(item.1))
                             .font(Self.listFont)
@@ -806,12 +1676,12 @@ private struct MarkdownView: View {
                             .foregroundColor(.secondary)
                         Spacer()
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
                     .background(Color.primary.opacity(0.05))
                     .overlay(alignment: .bottom) {
                         Rectangle()
-                            .fill(Color.primary.opacity(0.1))
+                            .fill(Color.primary.opacity(0.08))
                             .frame(height: 0.5)
                     }
                 }
@@ -819,37 +1689,37 @@ private struct MarkdownView: View {
                     Text(s)
                         .font(Self.codeFont)
                         .textSelection(.enabled)
-                        .padding(14)
+                        .padding(12)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.primary.opacity(0.05))
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(0.04))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
             )
 
         case .quote(let lines):
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Rectangle()
-                    .fill(Color.accentColor.opacity(0.6))
-                    .frame(width: 3)
+                    .fill(Color.accentColor.opacity(0.55))
+                    .frame(width: 2.5)
                 Text(inline(lines.joined(separator: "\n")))
                     .font(Self.quoteFont)
                     .foregroundColor(.secondary)
-                    .lineSpacing(4)
+                    .lineSpacing(3)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 2)
 
         case .rule:
             Rectangle()
-                .fill(Color.primary.opacity(0.12))
-                .frame(height: 1)
+                .fill(Color.primary.opacity(0.1))
+                .frame(height: 0.5)
                 .padding(.vertical, 4)
         }
     }
@@ -857,11 +1727,11 @@ private struct MarkdownView: View {
     private func headingFont(_ level: Int) -> Font {
         let size: CGFloat
         switch level {
-        case 1: size = 24
-        case 2: size = 20
-        case 3: size = 17
-        case 4: size = 15
-        default: size = 14
+        case 1: size = 20
+        case 2: size = 17
+        case 3: size = 15
+        case 4: size = 13
+        default: size = 12
         }
         return .system(size: size, weight: level <= 2 ? .bold : .semibold)
     }
@@ -895,43 +1765,21 @@ private struct MarkdownView: View {
 private enum HtmlPreprocess {
     static func apply(_ s: String) -> String {
         var out = s
-
-        // Strip HTML comments
         out = replaceRegex(out, #"<!--[\s\S]*?-->"#, with: "", caseInsensitive: false)
-
-        // <br>, <br/>, <br /> → newline
         out = replaceRegex(out, #"<br\s*/?>"#, with: "\n", caseInsensitive: true)
-
-        // <hr>, <hr/> → markdown rule
         out = replaceRegex(out, #"<hr\s*/?>"#, with: "\n\n---\n\n", caseInsensitive: true)
-
-        // <strong>x</strong> / <b>x</b> → **x**
         out = replaceRegex(out, #"<(strong|b)>([\s\S]*?)</\1>"#, with: "**$2**", caseInsensitive: true)
-
-        // <em>x</em> / <i>x</i> → *x*
         out = replaceRegex(out, #"<(em|i)>([\s\S]*?)</\1>"#, with: "*$2*", caseInsensitive: true)
-
-        // <code>x</code> → `x`
         out = replaceRegex(out, #"<code>([\s\S]*?)</code>"#, with: "`$1`", caseInsensitive: true)
-
-        // <kbd>x</kbd> → `x`
         out = replaceRegex(out, #"<kbd>([\s\S]*?)</kbd>"#, with: "`$1`", caseInsensitive: true)
-
-        // <a href="url">text</a> → [text](url)
         out = replaceRegex(
             out,
             #"<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)</a>"#,
             with: "[$2]($1)",
             caseInsensitive: true
         )
-
-        // <summary>x</summary> → **x**
         out = replaceRegex(out, #"<summary>([\s\S]*?)</summary>"#, with: "**$1**", caseInsensitive: true)
-
-        // Drop <details> / </details> tags but keep inner content
         out = replaceRegex(out, #"</?details(\s[^>]*)?>"#, with: "", caseInsensitive: true)
-
-        // <img src="url" alt="x" /> → ![x](url) (best effort)
         out = replaceRegex(
             out,
             #"<img\s+[^>]*?alt=["']([^"']*)["'][^>]*?src=["']([^"']+)["'][^>]*?/?>"#,
@@ -944,8 +1792,6 @@ private enum HtmlPreprocess {
             with: "![]($1)",
             caseInsensitive: true
         )
-
-        // Strip common structural tags entirely (keep inner text)
         let strippable = ["div", "span", "p", "section", "article", "header", "footer",
                           "nav", "small", "sub", "sup", "mark", "u", "s", "strike",
                           "ul", "ol", "li", "table", "thead", "tbody", "tfoot",
@@ -954,7 +1800,6 @@ private enum HtmlPreprocess {
         for tag in strippable {
             out = replaceRegex(out, "</?\(tag)(\\s[^>]*)?>", with: "", caseInsensitive: true)
         }
-
         return out
     }
 
@@ -983,86 +1828,31 @@ private enum Emoji {
         "tada": "🎉", "rocket": "🚀", "bug": "🐛", "sparkles": "✨",
         "memo": "📝", "white_check_mark": "✅", "heavy_check_mark": "✔️",
         "x": "❌", "warning": "⚠️", "fire": "🔥", "bulb": "💡",
-        "construction": "🚧", "construction_worker": "👷",
-        "wrench": "🔧", "hammer": "🔨", "hammer_and_wrench": "🛠",
+        "construction": "🚧", "wrench": "🔧", "hammer": "🔨",
         "recycle": "♻️", "art": "🎨", "zap": "⚡", "boom": "💥",
         "lock": "🔒", "unlock": "🔓", "key": "🔑",
-        "pencil": "✏️", "pencil2": "✏️", "books": "📚", "book": "📖",
-        "package": "📦", "rotating_light": "🚨", "ambulance": "🚑",
-        "truck": "🚚", "ship": "🚢", "airplane": "✈️",
-        "rewind": "⏪", "fast_forward": "⏩",
-        "twisted_rightwards_arrows": "🔀", "loop": "🔁",
-        "heavy_plus_sign": "➕", "heavy_minus_sign": "➖",
-        "arrow_up": "⬆️", "arrow_down": "⬇️", "arrow_right": "➡️", "arrow_left": "⬅️",
-        "tag": "🏷", "label": "🏷",
-        "star": "⭐", "stars": "🌟", "dizzy": "💫", "100": "💯",
-        "poop": "💩", "see_no_evil": "🙈",
+        "pencil": "✏️", "books": "📚", "book": "📖",
+        "package": "📦", "rotating_light": "🚨",
+        "tag": "🏷", "star": "⭐", "100": "💯",
         "checkered_flag": "🏁", "triangular_flag_on_post": "🚩",
         "wave": "👋", "ok_hand": "👌", "thumbsup": "👍", "+1": "👍",
         "thumbsdown": "👎", "-1": "👎", "clap": "👏", "muscle": "💪",
-        "pray": "🙏", "point_right": "👉", "point_left": "👈",
-        "point_up": "👆", "point_down": "👇",
-        "eyes": "👀", "raising_hand": "🙋",
-        "smile": "😄", "grinning": "😀", "sweat_smile": "😅",
-        "joy": "😂", "rofl": "🤣", "sob": "😭", "cry": "😢",
-        "angry": "😠", "rage": "😡", "tired_face": "😫",
-        "thinking": "🤔", "thinking_face": "🤔",
-        "clown_face": "🤡", "ghost": "👻", "alien": "👽", "robot": "🤖",
-        "computer": "💻", "keyboard": "⌨️", "iphone": "📱",
+        "pray": "🙏", "eyes": "👀",
+        "smile": "😄", "joy": "😂", "sob": "😭",
+        "thinking": "🤔", "robot": "🤖",
         "calendar": "📅", "chart_with_upwards_trend": "📈",
-        "chart_with_downwards_trend": "📉", "bar_chart": "📊",
-        "clipboard": "📋", "scroll": "📜", "page_facing_up": "📄",
-        "file_folder": "📁", "open_file_folder": "📂",
-        "paperclip": "📎", "pushpin": "📌", "round_pushpin": "📍",
-        "shield": "🛡", "crossed_swords": "⚔️",
-        "gem": "💎", "crystal_ball": "🔮",
-        "microscope": "🔬", "telescope": "🔭",
-        "test_tube": "🧪", "dna": "🧬",
-        "balloon": "🎈", "gift": "🎁", "ribbon": "🎀",
-        "heart": "❤️", "broken_heart": "💔", "yellow_heart": "💛",
-        "green_heart": "💚", "blue_heart": "💙", "purple_heart": "💜",
-        "black_heart": "🖤", "white_heart": "🤍",
-        "sparkling_heart": "💖", "two_hearts": "💕",
-        "no_entry": "⛔", "no_entry_sign": "🚫",
-        "question": "❓", "grey_question": "❔",
-        "exclamation": "❗", "grey_exclamation": "❕",
-        "bangbang": "‼️", "interrobang": "⁉️",
-        "speech_balloon": "💬", "thought_balloon": "💭",
-        "globe_with_meridians": "🌐", "earth_americas": "🌎",
-        "earth_africa": "🌍", "earth_asia": "🌏",
-        "sun_with_face": "🌞", "full_moon": "🌕", "new_moon": "🌑",
-        "cloud": "☁️", "snowflake": "❄️",
-        "tools": "🛠", "gear": "⚙️", "nut_and_bolt": "🔩",
-        "link": "🔗", "mag": "🔍", "mag_right": "🔎",
-        "bookmark": "🔖", "bookmark_tabs": "📑",
-        "bell": "🔔", "no_bell": "🔕",
-        "alarm_clock": "⏰", "hourglass": "⌛", "hourglass_flowing_sand": "⏳",
-        "watch": "⌚", "stopwatch": "⏱",
-        "rainbow": "🌈", "umbrella": "☂️", "coffee": "☕",
-        "checkbox": "☑️", "ballot_box_with_check": "☑️",
-        "calling": "📲", "envelope": "✉️", "incoming_envelope": "📨",
-        "inbox_tray": "📥", "outbox_tray": "📤",
-        "trophy": "🏆", "medal_sports": "🏅", "medal_military": "🎖",
-        "first_place_medal": "🥇", "second_place_medal": "🥈", "third_place_medal": "🥉",
-        "no_good": "🙅", "ok_woman": "🙆", "tipping_hand_woman": "💁",
-        "raised_hands": "🙌", "person_facepalming": "🤦",
-        "shrug": "🤷", "person_shrugging": "🤷",
-        "metal": "🤘", "vulcan_salute": "🖖", "v": "✌️",
-        "saluting_face": "🫡", "salute": "🫡",
-        "ledger": "📒", "notebook": "📓", "notebook_with_decorative_cover": "📔",
-        "card_file_box": "🗃", "card_box": "🗃",
-        "card_index": "📇", "card_index_dividers": "🗂",
-        "lipstick": "💄", "ring": "💍", "high_heel": "👠",
-        "shirt": "👕", "necktie": "👔", "dress": "👗",
-        "rose": "🌹", "cherry_blossom": "🌸", "tulip": "🌷",
-        "leaves": "🍃", "herb": "🌿", "four_leaf_clover": "🍀",
-        "money_with_wings": "💸", "moneybag": "💰", "dollar": "💵",
-        "credit_card": "💳", "receipt": "🧾",
-        "office": "🏢", "house": "🏠", "school": "🏫",
-        "hospital": "🏥", "bank": "🏦",
-        "key2": "🗝", "old_key": "🗝",
-        "newspaper": "📰", "satellite": "📡",
-        "abacus": "🧮", "chains": "⛓",
+        "clipboard": "📋", "paperclip": "📎",
+        "shield": "🛡", "gem": "💎",
+        "heart": "❤️", "broken_heart": "💔",
+        "no_entry": "⛔", "question": "❓", "exclamation": "❗",
+        "speech_balloon": "💬", "globe_with_meridians": "🌐",
+        "tools": "🛠", "gear": "⚙️", "link": "🔗", "mag": "🔍",
+        "bookmark": "🔖", "bell": "🔔", "alarm_clock": "⏰",
+        "hourglass": "⌛", "hourglass_flowing_sand": "⏳",
+        "rainbow": "🌈", "coffee": "☕",
+        "envelope": "✉️", "inbox_tray": "📥",
+        "trophy": "🏆", "first_place_medal": "🥇",
+        "shrug": "🤷", "metal": "🤘", "v": "✌️", "saluting_face": "🫡",
     ]
 
     private static let regex: NSRegularExpression? = {
@@ -1189,199 +1979,4 @@ private func parse(_ source: String) -> [MDBlock] {
     }
     flushAll()
     return blocks
-}
-
-private struct DetailActionButton: View {
-    enum Style { case primary, secondary }
-
-    let title: String
-    let systemImage: String
-    let nsImage: NSImage?
-    let style: Style
-    let action: () -> Void
-
-    @State private var hovering = false
-    @State private var pressing = false
-
-    init(
-        title: String,
-        systemImage: String,
-        nsImage: NSImage? = nil,
-        style: Style,
-        action: @escaping () -> Void
-    ) {
-        self.title = title
-        self.systemImage = systemImage
-        self.nsImage = nsImage
-        self.style = style
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                if let img = nsImage {
-                    Image(nsImage: img)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, nsImage != nil ? 5 : 7)
-            .foregroundColor(textColor)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(fillColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(strokeColor, lineWidth: borderWidth)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .scaleEffect(pressing ? 0.97 : 1.0)
-        .animation(.easeOut(duration: 0.08), value: pressing)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in pressing = true }
-                .onEnded { _ in pressing = false }
-        )
-    }
-
-    private var fillColor: Color {
-        switch style {
-        case .primary:
-            return hovering ? Color.accentColor.opacity(0.88) : Color.accentColor
-        case .secondary:
-            return hovering ? Color.primary.opacity(0.08) : Color.primary.opacity(0.03)
-        }
-    }
-
-    private var strokeColor: Color {
-        switch style {
-        case .primary:   return Color.clear
-        case .secondary: return Color.primary.opacity(hovering ? 0.22 : 0.15)
-        }
-    }
-
-    private var borderWidth: CGFloat {
-        style == .primary ? 0 : 0.7
-    }
-
-    private var textColor: Color {
-        style == .primary ? .white : .primary
-    }
-}
-
-private struct StatusBadge: View {
-    let text: String
-    let color: Color
-    let filled: Bool
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .foregroundColor(filled ? .white : color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(
-                Capsule().fill(filled ? color : color.opacity(0.15))
-            )
-            .overlay(
-                Capsule().stroke(
-                    filled ? Color.clear : color.opacity(0.35),
-                    lineWidth: 0.5
-                )
-            )
-    }
-}
-
-private struct BranchPill: View {
-    let branch: String
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 10))
-            Text(branch)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .textSelection(.enabled)
-        }
-        .foregroundColor(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(Capsule().fill(Color.primary.opacity(0.06)))
-        .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
-    }
-}
-
-private struct EmptyDetail: View {
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 40))
-                .foregroundColor(.secondary.opacity(0.4))
-            Text("Select a PR to view details.")
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Helpers
-
-private func statusColorForDetail(_ s: PRStatus) -> Color {
-    switch s {
-    case .changes:  return .red
-    case .approved: return .green
-    case .review:   return .orange
-    case .open:     return .blue
-    }
-}
-
-private func checkColor(_ s: CheckStatus) -> Color {
-    switch s {
-    case .success: return .green
-    case .failure: return .red
-    case .pending: return .orange
-    case .neutral, .none: return .secondary
-    }
-}
-
-private func checkGlyph(_ s: CheckStatus) -> String {
-    switch s {
-    case .success: return "checkmark.circle.fill"
-    case .failure: return "xmark.octagon.fill"
-    case .pending: return "clock.fill"
-    case .neutral: return "minus.circle.fill"
-    case .none:    return "circle"
-    }
-}
-
-private func mergeableColor(_ s: MergeableState) -> Color {
-    switch s {
-    case .dirty, .blocked: return .red
-    case .behind:          return .orange
-    case .unstable:        return .yellow
-    default:               return .secondary
-    }
-}
-
-private func relativeWindowTime(_ date: Date) -> String {
-    let s = Int(Date().timeIntervalSince(date))
-    if s < 60      { return "now" }
-    if s < 3600    { return "\(s / 60)m ago" }
-    if s < 86400   { return "\(s / 3600)h ago" }
-    let d = s / 86400
-    if d < 30      { return "\(d)d ago" }
-    if d < 365     { return "\(d / 30)mo ago" }
-    return "\(d / 365)y ago"
 }
