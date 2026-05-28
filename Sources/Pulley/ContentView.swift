@@ -462,7 +462,8 @@ private struct PRRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            // Line 1: title + actions
+            // Line 1: title + actions. Actions always occupy space so the
+            // title doesn't re-truncate on hover.
             HStack(spacing: 8) {
                 Text(pr.title)
                     .font(.system(size: 13))
@@ -473,7 +474,7 @@ private struct PRRow: View {
 
                 Spacer(minLength: 8)
 
-                if actionsVisible {
+                HStack(spacing: 0) {
                     ActionIcon(
                         icon: "arrow.up.right.square",
                         help: "Open PR in browser"
@@ -497,6 +498,8 @@ private struct PRRow: View {
                         }
                     }
                 }
+                .opacity(actionsVisible ? 1 : 0)
+                .allowsHitTesting(actionsVisible)
             }
 
             // Line 2: meta
@@ -534,9 +537,9 @@ private struct PRRow: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .help(pr.branch)
-                        if actionsVisible {
-                            InlineCopyButton(text: pr.branch, copied: $copied)
-                        }
+                        InlineCopyButton(text: pr.branch, copied: $copied)
+                            .opacity(actionsVisible ? 1 : 0)
+                            .allowsHitTesting(actionsVisible)
                     }
                     .foregroundColor(.secondary)
                 }
@@ -575,7 +578,10 @@ private struct PRRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .onTapGesture { onSelect() }
+        .onTapGesture {
+            onSelect()
+            PRActions.openInBrowser(pr.url)
+        }
     }
 
     private var rowBackground: Color {
@@ -801,15 +807,19 @@ private struct RepoChip: View {
             Circle()
                 .fill(colorForRepo(repo))
                 .frame(width: 6, height: 6)
-            if let orgPrefix {
-                (Text(orgPrefix + "/").foregroundColor(.primary.opacity(0.45))
-                 + Text(repo).foregroundColor(.primary.opacity(0.75)))
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-            } else {
-                Text(repo)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundColor(.primary.opacity(0.75))
+            Group {
+                if let orgPrefix {
+                    (Text(orgPrefix + "/").foregroundColor(.primary.opacity(0.45))
+                     + Text(repo).foregroundColor(.primary.opacity(0.75)))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                } else {
+                    Text(repo)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(.primary.opacity(0.75))
+                }
             }
+            .lineLimit(1)
+            .truncationMode(.middle)
         }
         .padding(.leading, 5)
         .padding(.trailing, 7)
@@ -822,6 +832,7 @@ private struct RepoChip: View {
             Capsule()
                 .stroke(colorForRepo(repo).opacity(0.25), lineWidth: 0.5)
         )
+        .fixedSize()
         .help(orgPrefix.map { "Repo: \($0)/\(repo)" } ?? "Repo: \(repo)")
     }
 }
@@ -833,9 +844,11 @@ private struct StatusInline: View {
         Text(statusLabel(status).lowercased())
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundColor(statusColor(status))
+            .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Capsule().fill(statusColor(status).opacity(0.13)))
+            .fixedSize()
             .help(statusLabel(status))
     }
 }
@@ -849,12 +862,14 @@ private struct MergeableChip: View {
                 .font(.system(size: 9, weight: .semibold))
             Text(state.label)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .lineLimit(1)
         }
         .foregroundColor(color)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Capsule().fill(color.opacity(0.13)))
         .overlay(Capsule().stroke(color.opacity(0.3), lineWidth: 0.5))
+        .fixedSize()
         .help(helpText)
     }
 
@@ -895,9 +910,11 @@ private struct MutedChip: View {
         Text(text)
             .font(.system(size: 9, weight: .medium, design: .monospaced))
             .foregroundColor(.secondary)
+            .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Capsule().fill(Color.primary.opacity(0.07)))
+            .fixedSize()
     }
 }
 
