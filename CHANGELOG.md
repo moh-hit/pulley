@@ -8,6 +8,21 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+### Added
+- **Inbox** view: a second top-level surface in the main window that shows
+  your unread GitHub notifications. Reuses the sync timer (the inbox fetch
+  is parallel to the PR fetch and best-effort, so a token without the
+  `notifications` scope quietly skips the call). Rows show subject type,
+  reason, and repo; click opens the thread in the browser and silently marks
+  it read via `PATCH /notifications/threads/{id}`. Header gets a purple
+  "Inbox" tab with an unread-count chip.
+- **Worktree sweeper**: when Pulley creates a worktree via "Open in IDE" it
+  now tracks the path locally. After each sync, any tracked worktree whose
+  upstream PR has been merged or closed is removed via
+  `git worktree remove` (no `--force`, so dirty worktrees survive and will
+  be reconsidered next sync). Stranded `<repo>--<slug>` siblings no longer
+  accumulate.
+
 ### Fixed
 - "Toggle Sidebar" menu item now uses `#selector(NSSplitViewController.toggleSidebar(_:))` instead of a loose `Selector("toggleSidebar:")`, clearing the compiler warning that had been riding along since 1.2.0.
 

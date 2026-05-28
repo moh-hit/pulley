@@ -1,7 +1,45 @@
 import AppKit
 import Foundation
 
+/// A worktree Pulley itself created via `checkoutAndOpen`. Persisted so the
+/// sync-time sweeper can find and remove `<repo>--<slug>` siblings whose
+/// upstream PR has since been merged or closed.
+struct TrackedWorktree: Codable, Hashable, Identifiable {
+    let path: String
+    let org: String
+    let repo: String
+    let branch: String
+    let createdAt: Date
+    var id: String { path }
+}
+
 enum PRActions {
+
+    private static let trackedWorktreesKey = "worktrees.tracked.v1"
+
+    static func trackedWorktrees() -> [TrackedWorktree] {
+        guard let data = UserDefaults.standard.data(forKey: trackedWorktreesKey) else { return [] }
+        return (try? JSONDecoder().decode([TrackedWorktree].self, from: data)) ?? []
+    }
+
+    private static func saveTrackedWorktrees(_ list: [TrackedWorktree]) {
+        if let data = try? JSONEncoder().encode(list) {
+            UserDefaults.standard.set(data, forKey: trackedWorktreesKey)
+        }
+    }
+
+    private static func recordWorktree(path: String, pr: PR) {
+        var list = trackedWorktrees()
+        list.removeAll { $0.path == path }
+        list.append(TrackedWorktree(
+            path: path,
+            org: pr.org,
+            repo: pr.repo,
+            branch: pr.branch,
+            createdAt: Date()
+        ))
+        saveTrackedWorktrees(list)
+    }
 
     static func copyToPasteboard(_ s: String) {
         NSPasteboard.general.clearContents()
@@ -87,14 +125,19 @@ enum PRActions {
             }
 
             let result = runShell(cmd)
+            let succeeded = result.exitCode == 0
+            let pathToRecord = succeeded && !isExisting ? targetPath : nil
             await MainActor.run {
                 defer { completion() }
-                if result.exitCode != 0 {
+                if !succeeded {
                     showAlert(
                         title: isExisting ? "Couldn't refresh worktree" : "Couldn't create worktree",
                         message: "git exited \(result.exitCode).\n\n\(result.output.prefix(800))"
                     )
                     return
+                }
+                if let p = pathToRecord {
+                    recordWorktree(path: p, pr: pr)
                 }
                 openInIDE(targetPath)
             }
@@ -179,6 +222,78 @@ enum PRActions {
 
     private static func shellQuote(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    // MARK: - Worktree sweeper
+
+    /// Remove worktrees Pulley created whose PR has since been merged or
+    /// closed. `openBranchKeys` are `<org>/<repo>#<branch>` strings from the
+    /// just-finished sync; branches still in the open list are skipped. For
+    /// the rest we ask GitHub directly — a branch out-of-scope for the user's
+    /// current filter is *not* the same as a closed PR. `git worktree remove`
+    /// runs without `--force`, so any worktree with uncommitted changes stays
+    /// put and will be reconsidered on the next sync.
+    static func pruneStaleWorktrees(openBranchKeys: Set<String>, client: GitHubClient) async {
+        let tracked = trackedWorktrees()
+        guard !tracked.isEmpty else { return }
+
+        var keep: [TrackedWorktree] = []
+        for wt in tracked {
+            let key = "\(wt.org)/\(wt.repo)#\(wt.branch)"
+            if openBranchKeys.contains(key) {
+                keep.append(wt)
+                continue
+            }
+            // If the user nuked the worktree dir behind our back, drop it
+            // from tracking and let `git worktree prune` clean the metadata.
+            if !FileManager.default.fileExists(atPath: wt.path) {
+                _ = pruneOrphanedMetadata(for: wt)
+                continue
+            }
+            let state = await client.fetchPRBranchState(
+                org: wt.org, repo: wt.repo, branch: wt.branch
+            )
+            switch state {
+            case .open:
+                keep.append(wt)
+            case .closed, .notFound:
+                if !removeWorktree(wt) {
+                    // Dirty / locked — leave it and try again on the next sync.
+                    keep.append(wt)
+                }
+            }
+        }
+        saveTrackedWorktrees(keep)
+    }
+
+    /// Find the live main checkout for a tracked worktree (the path the
+    /// `git worktree` commands need to run inside). Mirrors the lookup in
+    /// `checkoutAndOpen` so a base-dir rename doesn't strand the sweeper.
+    private static func mainRepoPath(for wt: TrackedWorktree) -> String? {
+        let base = Config.expandedBaseDir
+        let flat   = "\(base)/\(wt.repo)"
+        let nested = "\(base)/\(wt.org)/\(wt.repo)"
+        if FileManager.default.fileExists(atPath: flat)   { return flat }
+        if FileManager.default.fileExists(atPath: nested) { return nested }
+        return nil
+    }
+
+    private static func removeWorktree(_ wt: TrackedWorktree) -> Bool {
+        guard let main = mainRepoPath(for: wt) else {
+            // No main repo to operate from — best effort: just delete the dir.
+            try? FileManager.default.removeItem(atPath: wt.path)
+            return true
+        }
+        let result = runShell(
+            "cd \(shellQuote(main)) && git worktree remove \(shellQuote(wt.path))"
+        )
+        return result.exitCode == 0
+    }
+
+    private static func pruneOrphanedMetadata(for wt: TrackedWorktree) -> Bool {
+        guard let main = mainRepoPath(for: wt) else { return true }
+        _ = runShell("cd \(shellQuote(main)) && git worktree prune")
+        return true
     }
 
     @MainActor

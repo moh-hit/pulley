@@ -182,6 +182,13 @@ enum SidebarFilter: Hashable, Identifiable {
     }
 }
 
+/// Two top-level surfaces in the main window: a PR list (default) and the
+/// notifications inbox. Selecting either is a one-click switch in HeaderBar.
+enum MainViewMode: Hashable {
+    case prs
+    case inbox
+}
+
 struct MainWindowView: View {
     @EnvironmentObject var store: Store
     @State private var filter: SidebarFilter = .all
@@ -189,6 +196,7 @@ struct MainWindowView: View {
     @State private var query: String = ""
     @State private var showSettings: Bool = false
     @State private var groupMode: ListGroupMode = .none
+    @State private var viewMode: MainViewMode = .prs
 
     private var filtered: [PR] {
         let base: [PR]
@@ -215,29 +223,50 @@ struct MainWindowView: View {
                 filter: $filter,
                 query: $query,
                 groupMode: $groupMode,
+                viewMode: $viewMode,
                 prs: store.prs,
                 filteredCount: filtered.count,
+                inboxCount: store.unreadInboxCount,
                 lastSync: store.lastSync,
                 syncing: store.syncing
             )
 
-            HSplitView {
-                PRListPane(
-                    prs: filtered,
-                    selectedPRID: $selectedPRID,
-                    groupMode: $groupMode,
-                    filter: filter
-                )
-                .frame(minWidth: 340, idealWidth: 440, maxWidth: 520)
+            Group {
+                switch viewMode {
+                case .prs:
+                    HSplitView {
+                        PRListPane(
+                            prs: filtered,
+                            selectedPRID: $selectedPRID,
+                            groupMode: $groupMode,
+                            filter: filter
+                        )
+                        .frame(minWidth: 340, idealWidth: 440, maxWidth: 520)
 
-                Group {
-                    if let pr = selectedPR {
-                        PRDetailPane(pr: pr)
-                    } else {
-                        EmptyDetail()
+                        Group {
+                            if let pr = selectedPR {
+                                PRDetailPane(pr: pr)
+                            } else {
+                                EmptyDetail()
+                            }
+                        }
+                        .frame(minWidth: 480, idealWidth: 760)
                     }
+                case .inbox:
+                    InboxPane(
+                        threads: store.notifications,
+                        query: query,
+                        onOpen: { thread in
+                            if let url = thread.url {
+                                PRActions.openInBrowser(url)
+                            }
+                            store.markNotificationRead(thread.id)
+                        },
+                        onMarkRead: { id in
+                            store.markNotificationRead(id)
+                        }
+                    )
                 }
-                .frame(minWidth: 480, idealWidth: 760)
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -259,8 +288,10 @@ private struct HeaderBar: View {
     @Binding var filter: SidebarFilter
     @Binding var query: String
     @Binding var groupMode: ListGroupMode
+    @Binding var viewMode: MainViewMode
     let prs: [PR]
     let filteredCount: Int
+    let inboxCount: Int
     let lastSync: Date?
     let syncing: Bool
     @State private var nowTick: Date = Date()
@@ -277,7 +308,7 @@ private struct HeaderBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             mainRow
-            if orgs.count > 1 {
+            if orgs.count > 1 && viewMode == .prs {
                 orgRow
             }
         }
@@ -302,45 +333,73 @@ private struct HeaderBar: View {
                     label: "All",
                     count: prs.count,
                     dot: .accentColor,
-                    isSelected: filter == .all
-                ) { filter = .all }
+                    isSelected: viewMode == .prs && filter == .all
+                ) { viewMode = .prs; filter = .all }
 
                 FilterTab(
                     label: "Changes",
                     count: statusCounts[.changes] ?? 0,
                     dot: .red,
-                    isSelected: filter == .status(.changes)
-                ) { filter = .status(.changes) }
+                    isSelected: viewMode == .prs && filter == .status(.changes)
+                ) { viewMode = .prs; filter = .status(.changes) }
 
                 FilterTab(
                     label: "Review",
                     count: statusCounts[.review] ?? 0,
                     dot: .orange,
-                    isSelected: filter == .status(.review)
-                ) { filter = .status(.review) }
+                    isSelected: viewMode == .prs && filter == .status(.review)
+                ) { viewMode = .prs; filter = .status(.review) }
 
                 FilterTab(
                     label: "Approved",
                     count: statusCounts[.approved] ?? 0,
                     dot: .green,
-                    isSelected: filter == .status(.approved)
-                ) { filter = .status(.approved) }
+                    isSelected: viewMode == .prs && filter == .status(.approved)
+                ) { viewMode = .prs; filter = .status(.approved) }
 
                 FilterTab(
                     label: "Open",
                     count: statusCounts[.open] ?? 0,
                     dot: .blue,
-                    isSelected: filter == .status(.open)
-                ) { filter = .status(.open) }
+                    isSelected: viewMode == .prs && filter == .status(.open)
+                ) { viewMode = .prs; filter = .status(.open) }
+
+                // Visual separator before the Inbox switch — it's a different
+                // surface, not another PR filter.
+                Rectangle()
+                    .fill(Color.primary.opacity(0.12))
+                    .frame(width: 0.5, height: 16)
+                    .padding(.horizontal, 4)
+
+                InboxTab(
+                    count: inboxCount,
+                    isSelected: viewMode == .inbox
+                ) { viewMode = .inbox }
             }
 
             Spacer(minLength: 12)
 
             searchField
             syncStatus
-            countLabel
-            groupPicker
+            if viewMode == .prs {
+                countLabel
+                groupPicker
+            } else {
+                inboxCountLabel
+            }
         }
+    }
+
+    private var inboxCountLabel: some View {
+        HStack(spacing: 3) {
+            Text("\(inboxCount)")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(.secondary)
+            Text(inboxCount == 1 ? "unread" : "unread")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.6))
+        }
+        .fixedSize()
     }
 
     private var syncStatus: some View {
@@ -508,6 +567,56 @@ private struct FilterTab: View {
 
     private var stroke: Color {
         isSelected ? dot.opacity(0.3) : .clear
+    }
+}
+
+/// Mirrors FilterTab visually but with a bell icon and accent dot fixed to
+/// the GitHub-purple-ish tint, so it reads as a sibling control rather than
+/// a sixth status filter.
+private struct InboxTab: View {
+    let count: Int
+    let isSelected: Bool
+    let onTap: () -> Void
+    @State private var hovered = false
+
+    private var dot: Color { .purple }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Image(systemName: "tray.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(isSelected ? dot : .secondary.opacity(0.85))
+                Text("Inbox")
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? .primary : .secondary.opacity(0.85))
+                    .fixedSize()
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Capsule().fill(dot.opacity(0.9)))
+                        .fixedSize()
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? dot.opacity(0.14) : (hovered ? Color.primary.opacity(0.06) : .clear))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(isSelected ? dot.opacity(0.32) : .clear, lineWidth: 0.5)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .animation(.easeOut(duration: 0.1), value: isSelected)
+        .help("GitHub notifications")
     }
 }
 
@@ -1428,6 +1537,203 @@ private struct EmptyDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.textBackgroundColor))
+    }
+}
+
+// MARK: - Inbox
+
+/// Notifications inbox pane. Reuses the same row chrome as the PR list so
+/// the two surfaces feel like one app. Rows are flat (no detail pane); a
+/// click opens the thread in the browser and silently marks it read.
+private struct InboxPane: View {
+    let threads: [InboxThread]
+    let query: String
+    let onOpen: (InboxThread) -> Void
+    let onMarkRead: (String) -> Void
+
+    private var filtered: [InboxThread] {
+        guard !query.isEmpty else { return threads }
+        let q = query.lowercased()
+        return threads.filter {
+            ($0.title + " " + $0.repo + " " + $0.org + " " + $0.reasonLabel)
+                .lowercased().contains(q)
+        }
+    }
+
+    var body: some View {
+        Group {
+            if filtered.isEmpty {
+                emptyState
+            } else {
+                list
+            }
+        }
+        .background(Color(NSColor.textBackgroundColor))
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "tray")
+                .font(.system(size: 32, weight: .light))
+                .foregroundColor(.secondary.opacity(0.45))
+            Text(threads.isEmpty ? "Inbox zero" : "Nothing matches")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.secondary)
+            Text(threads.isEmpty
+                 ? "No unread notifications. Sync to refresh."
+                 : "Try a different search.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var list: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, t in
+                    InboxRow(
+                        thread: t,
+                        onOpen:     { onOpen(t) },
+                        onMarkRead: { onMarkRead(t.id) }
+                    )
+                    if idx < filtered.count - 1 {
+                        Divider().opacity(0.35).padding(.leading, 18)
+                    }
+                }
+                Color.clear.frame(height: 4)
+            }
+        }
+    }
+}
+
+private struct InboxRow: View {
+    let thread: InboxThread
+    let onOpen: () -> Void
+    let onMarkRead: () -> Void
+    @State private var hovered = false
+
+    private var typeGlyph: String {
+        switch thread.type {
+        case "PullRequest": return "arrow.triangle.pull"
+        case "Issue":       return "circle.dashed"
+        case "Discussion":  return "bubble.left"
+        case "Release":     return "tag"
+        case "Commit":      return "scribble"
+        default:            return "bell"
+        }
+    }
+
+    private var typeTint: Color {
+        switch thread.type {
+        case "PullRequest": return .accentColor
+        case "Issue":       return .green
+        case "Discussion":  return .purple
+        case "Release":     return .orange
+        default:            return .secondary
+        }
+    }
+
+    private var reasonTint: Color {
+        switch thread.reason {
+        case "mention", "team_mention": return .yellow
+        case "review_requested":         return .orange
+        case "author", "assign":         return .accentColor
+        case "ci_activity":              return .secondary
+        case "security_alert":           return .red
+        default:                         return .secondary
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Unread indicator bar — mirrors the PR row status bar.
+            Rectangle()
+                .fill(thread.unread ? typeTint : Color.clear)
+                .frame(width: 3)
+                .opacity(thread.unread ? 0.85 : 0)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: typeGlyph)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(typeTint)
+                        .frame(width: 14)
+
+                    Text(thread.title)
+                        .font(.system(size: 14, weight: thread.unread ? .semibold : .regular))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
+                        .help(thread.title)
+
+                    if hovered {
+                        Button(action: onMarkRead) {
+                            Image(systemName: "envelope.open")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .frame(width: 22, height: 20)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.primary.opacity(0.07))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Mark as read")
+                    }
+
+                    Text(relativeWindowTime(thread.updatedAt))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.85))
+                        .frame(width: 44, alignment: .trailing)
+                        .help("Updated \(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                }
+
+                HStack(spacing: 8) {
+                    reasonChip
+                    repoLabel
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(.horizontal, 15)
+            .padding(.vertical, 11)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(rowBackground)
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .onTapGesture { onOpen() }
+    }
+
+    private var rowBackground: Color {
+        hovered ? Color.primary.opacity(0.04) : .clear
+    }
+
+    private var reasonChip: some View {
+        Text(thread.reasonLabel.lowercased())
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundColor(reasonTint)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(reasonTint.opacity(0.13)))
+            .fixedSize()
+    }
+
+    private var repoLabel: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(colorForRepo(thread.repo))
+                .frame(width: 6, height: 6)
+            (Text(thread.org + "/").foregroundColor(.secondary.opacity(0.6))
+             + Text(thread.repo).foregroundColor(.secondary))
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .help("\(thread.org)/\(thread.repo)")
     }
 }
 
