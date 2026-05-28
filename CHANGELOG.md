@@ -9,19 +9,34 @@ to settings shape or filesystem layout.
 ## [Unreleased]
 
 ### Added
-- **Inbox** view: a second top-level surface in the main window that shows
-  your unread GitHub notifications. Reuses the sync timer (the inbox fetch
-  is parallel to the PR fetch and best-effort, so a token without the
-  `notifications` scope quietly skips the call). Rows show subject type,
-  reason, and repo; click opens the thread in the browser and silently marks
-  it read via `PATCH /notifications/threads/{id}`. Header gets a purple
-  "Inbox" tab with an unread-count chip.
-- **Worktree sweeper**: when Pulley creates a worktree via "Open in IDE" it
-  now tracks the path locally. After each sync, any tracked worktree whose
-  upstream PR has been merged or closed is removed via
-  `git worktree remove` (no `--force`, so dirty worktrees survive and will
-  be reconsidered next sync). Stranded `<repo>--<slug>` siblings no longer
+- **Inbox** view: a second top-level surface in the main window that
+  shows your unread GitHub notifications. The inbox fetch runs in
+  parallel with the PR fetch on every sync and is best-effort — a token
+  without the `notifications` scope quietly skips the call. Rows show
+  subject type, reason, and repo; click opens the thread in the browser
+  and silently marks it read via `PATCH /notifications/threads/{id}`.
+  Header gets a purple "Inbox" tab with an unread-count chip.
+- **Worktree sweeper**: when Pulley creates a worktree via "Open in IDE"
+  it now tracks the path locally. After each sync, any tracked worktree
+  whose upstream PR has been merged or closed is removed via
+  `git worktree remove` (no `--force`, so dirty worktrees survive and are
+  reconsidered next sync). Stranded `<repo>--<slug>` siblings no longer
   accumulate.
+- **Quick review actions** in the detail pane: an always-visible reply
+  box plus Approve / Request changes / Comment buttons that double as
+  submit. Approve fires on click (body optional); the other two stay
+  disabled until you type something. After a successful submission the
+  store re-syncs so the row badge picks up the new state. Errors
+  (e.g. self-approval 422s) render inline.
+- **Draft / ready-for-review toggle** as a quiet text link under the
+  review buttons. Backed by the GraphQL `convertPullRequestToDraft` /
+  `markPullRequestReadyForReview` mutations. An optimistic local
+  override keeps the label flipped through the post-mutation sync so
+  the eventually-consistent `/search/issues` index can't snap it back.
+- **Conflict banner** in the detail pane when GitHub reports the branch
+  as `dirty` (merge conflicts with base). The existing small badge
+  stays; the banner makes the state un-missable on the surface where
+  the user is about to act.
 
 ### Fixed
 - "Toggle Sidebar" menu item now uses `#selector(NSSplitViewController.toggleSidebar(_:))` instead of a loose `Selector("toggleSidebar:")`, clearing the compiler warning that had been riding along since 1.2.0.

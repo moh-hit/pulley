@@ -15,6 +15,14 @@ final class Store: ObservableObject {
     private let cacheKey         = "store.prs.cache.v2"
     private let inboxCacheKey    = "store.inbox.cache.v1"
 
+    /// Recent optimistic draft toggles. Keyed by PR id; value is the new
+    /// `isDraft` and when we applied it. `/search/issues` (and even the
+    /// per-PR detail endpoint, for a few seconds) can lag the draft flag,
+    /// so during the TTL window we prefer the override over whatever the
+    /// fetch returned — otherwise the UI flips, syncs, then flips back.
+    private var draftOverrides: [String: (isDraft: Bool, at: Date)] = [:]
+    private let draftOverrideTTL: TimeInterval = 30
+
     init() {
         loadCache()
         startTimer()
@@ -91,18 +99,19 @@ final class Store: ObservableObject {
                 async let inboxTask  = client.fetchNotifications()
                 let fetched = try await prsTask
                 let inbox   = (try? await inboxTask) ?? self.notifications
-                self.prs = fetched
+                let merged  = self.applyDraftOverrides(to: fetched)
+                self.prs = merged
                 self.notifications = inbox
                 self.saveCache()
                 self.lastSync = Date()
                 self.syncing = false
                 NotificationsManager.shared.requestAuthorizationIfNeeded()
-                NotificationsManager.shared.reconcile(fetched)
+                NotificationsManager.shared.reconcile(merged)
 
                 // Off the main actor — git shells out and GitHub round-trips
                 // are slow enough that we don't want the sweeper holding up
                 // UI updates.
-                let openKeys = Set(fetched.map { "\($0.org)/\($0.repo)#\($0.branch)" })
+                let openKeys = Set(merged.map { "\($0.org)/\($0.repo)#\($0.branch)" })
                 Task.detached {
                     await PRActions.pruneStaleWorktrees(
                         openBranchKeys: openKeys, client: client
@@ -131,6 +140,71 @@ final class Store: ObservableObject {
 
     var unreadInboxCount: Int {
         notifications.filter(\.unread).count
+    }
+
+    /// Overlay recent optimistic draft toggles on top of a freshly-fetched
+    /// list. Expired entries are dropped on the way through; this is the
+    /// only place we prune, which is fine because every sync runs through
+    /// here.
+    private func applyDraftOverrides(to fetched: [PR]) -> [PR] {
+        let cutoff = Date().addingTimeInterval(-draftOverrideTTL)
+        draftOverrides = draftOverrides.filter { $0.value.at > cutoff }
+        guard !draftOverrides.isEmpty else { return fetched }
+        return fetched.map { pr in
+            guard let override = draftOverrides[pr.id],
+                  override.isDraft != pr.isDraft else { return pr }
+            return PR(
+                id: pr.id,
+                number: pr.number,
+                title: pr.title,
+                org: pr.org,
+                repo: pr.repo,
+                url: pr.url,
+                branch: pr.branch,
+                headSha: pr.headSha,
+                assignee: pr.assignee,
+                status: pr.status,
+                isDraft: override.isDraft,
+                updatedAt: pr.updatedAt,
+                createdAt: pr.createdAt,
+                checks: pr.checks,
+                checkStatus: pr.checkStatus,
+                mergeableState: pr.mergeableState,
+                nodeID: pr.nodeID
+            )
+        }
+    }
+
+    /// Apply a draft/ready transition locally without waiting for the next
+    /// `sync()`. `/search/issues` is eventually-consistent for draft flips
+    /// (the search index can lag the underlying record by several seconds),
+    /// so we patch the in-memory PR right after the GraphQL mutation returns
+    /// — the badge and the action-row label flip immediately. The background
+    /// sync still runs to reconcile every other field.
+    func setLocalDraft(prID: String, isDraft: Bool) {
+        draftOverrides[prID] = (isDraft, Date())
+        guard let idx = prs.firstIndex(where: { $0.id == prID }) else { return }
+        let old = prs[idx]
+        prs[idx] = PR(
+            id: old.id,
+            number: old.number,
+            title: old.title,
+            org: old.org,
+            repo: old.repo,
+            url: old.url,
+            branch: old.branch,
+            headSha: old.headSha,
+            assignee: old.assignee,
+            status: old.status,
+            isDraft: isDraft,
+            updatedAt: old.updatedAt,
+            createdAt: old.createdAt,
+            checks: old.checks,
+            checkStatus: old.checkStatus,
+            mergeableState: old.mergeableState,
+            nodeID: old.nodeID
+        )
+        saveCache()
     }
 
     /// Count of PRs that need attention (anything not yet approved).

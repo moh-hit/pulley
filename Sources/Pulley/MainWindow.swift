@@ -1293,17 +1293,37 @@ private func colorForRepo(_ repo: String) -> Color {
 
 private struct PRDetailPane: View {
     let pr: PR
+    @EnvironmentObject var store: Store
 
     @State private var descriptionText: String = ""
     @State private var loading = false
     @State private var loadError: String? = nil
+
+    // Review composer state. The textarea is always visible (single-line
+    // tall when empty, grows to a few lines as you type); the three action
+    // buttons both pick the event type AND submit, so there's no "select
+    // then send" two-step.
+    @State private var reviewBody: String = ""
+    @State private var inflightAction: InflightAction? = nil
+    @State private var actionError: String? = nil
+
+    private enum InflightAction: Equatable { case draft, review }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 header
                 statusRow
+                if pr.mergeableState == .dirty {
+                    ConflictBanner()
+                }
                 actionRow
+
+                divider
+
+                section("Review") {
+                    reviewSection
+                }
 
                 divider
 
@@ -1325,7 +1345,14 @@ private struct PRDetailPane: View {
         }
         .background(Color(NSColor.textBackgroundColor))
         .onAppear(perform: loadBody)
-        .onChange(of: pr.id) { _ in loadBody() }
+        .onChange(of: pr.id) { _ in
+            loadBody()
+            // Reset per-PR transient state so the textarea / error from one
+            // PR doesn't leak into the next selection.
+            reviewBody = ""
+            actionError = nil
+            inflightAction = nil
+        }
     }
 
     private var divider: some View {
@@ -1439,6 +1466,171 @@ private struct PRDetailPane: View {
         }
     }
 
+    private var reviewSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ReviewComposer(
+                text: $reviewBody,
+                disabled: inflightAction != nil
+            )
+
+            HStack(spacing: 8) {
+                DetailActionButton(
+                    title: "Approve",
+                    systemImage: "checkmark.seal.fill",
+                    style: .primary
+                ) {
+                    submitReview(event: .approve, body: reviewBody)
+                }
+                .disabled(inflightAction != nil)
+                .help("Approve this PR (comment optional)")
+
+                DetailActionButton(
+                    title: "Request changes",
+                    systemImage: "exclamationmark.bubble",
+                    style: .secondary
+                ) {
+                    submitReview(event: .requestChanges, body: reviewBody)
+                }
+                .disabled(inflightAction != nil || trimmedBody.isEmpty)
+                .help(trimmedBody.isEmpty
+                      ? "Add a comment to request changes"
+                      : "Submit as Request changes")
+
+                DetailActionButton(
+                    title: "Comment",
+                    systemImage: "text.bubble",
+                    style: .secondary
+                ) {
+                    submitReview(event: .comment, body: reviewBody)
+                }
+                .disabled(inflightAction != nil || trimmedBody.isEmpty)
+                .help(trimmedBody.isEmpty
+                      ? "Add a comment to leave a review comment"
+                      : "Submit as Comment")
+
+                if inflightAction == .review {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.leading, 2)
+                }
+
+                Spacer()
+            }
+
+            if let err = actionError {
+                Text(err)
+                    .font(.system(size: 12))
+                    .foregroundColor(.red)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let nodeID = pr.nodeID {
+                draftToggleLink(nodeID: nodeID)
+            }
+        }
+    }
+
+    private var trimmedBody: String {
+        reviewBody.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Subtle text-style toggle that lives under the review buttons. Draft
+    /// flips are uncommon enough that a full button competing with Approve /
+    /// Request changes / Comment is overkill — a quiet inline link is plenty.
+    @ViewBuilder
+    private func draftToggleLink(nodeID: String) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                toggleDraft(nodeID: nodeID)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: pr.isDraft ? "arrow.up.right.circle" : "pencil.and.outline")
+                        .font(.system(size: 10, weight: .medium))
+                    Text(pr.isDraft ? "Mark ready for review" : "Convert to draft")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(.secondary)
+                .padding(.vertical, 2)
+            }
+            .buttonStyle(.plain)
+            .disabled(inflightAction != nil)
+            .help(pr.isDraft
+                  ? "Move this PR out of draft state"
+                  : "Convert this PR back to draft")
+
+            if inflightAction == .draft {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private func toggleDraft(nodeID: String) {
+        let token = Config.token
+        guard !token.isEmpty else {
+            actionError = "Token not configured."
+            return
+        }
+        inflightAction = .draft
+        actionError = nil
+        let client = GitHubClient(token: token, orgs: Config.orgs)
+        let targetDraft = !pr.isDraft
+        let prID = pr.id
+        Task {
+            do {
+                try await client.setDraft(nodeID: nodeID, draft: targetDraft)
+                await MainActor.run {
+                    // GraphQL confirmed the flip — patch local state so the
+                    // label / badges update immediately. `/search/issues` is
+                    // eventually-consistent for the draft flag, so the
+                    // background sync alone leaves the UI stale for several
+                    // seconds.
+                    self.store.setLocalDraft(prID: prID, isDraft: targetDraft)
+                    self.inflightAction = nil
+                    self.store.sync()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionError = error.localizedDescription
+                    self.inflightAction = nil
+                }
+            }
+        }
+    }
+
+    private func submitReview(event: ReviewEvent, body: String?) {
+        let token = Config.token
+        guard !token.isEmpty else {
+            actionError = "Token not configured."
+            return
+        }
+        inflightAction = .review
+        actionError = nil
+        let client = GitHubClient(token: token, orgs: Config.orgs)
+        let org = pr.org, repo = pr.repo, number = pr.number
+        let trimmed = body?.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do {
+                try await client.submitReview(
+                    org: org, repo: repo, number: number,
+                    event: event, body: trimmed
+                )
+                await MainActor.run {
+                    self.reviewBody = ""
+                    self.inflightAction = nil
+                    self.store.sync()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionError = error.localizedDescription
+                    self.inflightAction = nil
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var bodySection: some View {
         if loading {
@@ -1519,6 +1711,91 @@ private struct PRDetailPane: View {
                 }
             }
         }
+    }
+}
+
+/// Always-visible review composer. Starts compact (two lines tall when
+/// empty) and grows with content up to ~7 lines before scrolling internally.
+/// The placeholder is a single neutral string ("Leave a comment…") because
+/// the action buttons next door supply the verb — the textarea itself doesn't
+/// need to know whether you're approving or requesting changes.
+private struct ReviewComposer: View {
+    @Binding var text: String
+    let disabled: Bool
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // The TextField+axis growing API needs macOS 13+; the deployment
+            // target is already 13. Using TextField (not TextEditor) gives us
+            // a native focus ring, real placeholder behavior, and graceful
+            // single-line collapse when empty — none of which TextEditor does.
+            TextField("", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .lineLimit(2...7)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 9)
+                .focused($focused)
+                .disabled(disabled)
+
+            if text.isEmpty {
+                Text("Leave a comment…")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary.opacity(0.55))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .allowsHitTesting(false)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(focused ? 0.06 : 0.035))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(
+                    focused ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.13),
+                    lineWidth: focused ? 1.0 : 0.7
+                )
+        )
+        .animation(.easeOut(duration: 0.12), value: focused)
+    }
+}
+
+/// Prominent red banner shown above the action row when GitHub reports the
+/// PR's `mergeable_state == dirty`. The status row already carries a small
+/// "conflicts" badge; this just makes the state un-missable on the surface
+/// where the user is about to act on the PR.
+private struct ConflictBanner: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.red)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Merge conflicts with the base branch")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.primary)
+                Text("Rebase or merge the base branch locally before this PR can be merged.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.red.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.red.opacity(0.35), lineWidth: 0.7)
+        )
     }
 }
 
