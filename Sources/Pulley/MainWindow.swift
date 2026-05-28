@@ -1299,10 +1299,10 @@ private struct PRDetailPane: View {
     @State private var loading = false
     @State private var loadError: String? = nil
 
-    // Review / draft state. `reviewMode == nil` keeps the textarea collapsed;
-    // setting it to `.requestChanges` or `.comment` expands it. `.approve`
-    // is never stored here — Approve fires immediately on click.
-    @State private var reviewMode: ReviewEvent? = nil
+    // Review composer state. The textarea is always visible (single-line
+    // tall when empty, grows to a few lines as you type); the three action
+    // buttons both pick the event type AND submit, so there's no "select
+    // then send" two-step.
     @State private var reviewBody: String = ""
     @State private var inflightAction: InflightAction? = nil
     @State private var actionError: String? = nil
@@ -1349,7 +1349,6 @@ private struct PRDetailPane: View {
             loadBody()
             // Reset per-PR transient state so the textarea / error from one
             // PR doesn't leak into the next selection.
-            reviewMode = nil
             reviewBody = ""
             actionError = nil
             inflightAction = nil
@@ -1463,69 +1462,51 @@ private struct PRDetailPane: View {
                 .help("Copy branch name")
             }
 
-            if let nodeID = pr.nodeID {
-                DetailActionButton(
-                    title: pr.isDraft ? "Mark ready for review" : "Convert to draft",
-                    systemImage: pr.isDraft ? "checkmark.circle" : "pencil.and.outline",
-                    style: .secondary
-                ) {
-                    toggleDraft(nodeID: nodeID)
-                }
-                .help(pr.isDraft
-                      ? "Move this PR out of draft state"
-                      : "Convert this PR back to draft")
-                .disabled(inflightAction == .draft)
-            }
-
-            if inflightAction == .draft {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(.leading, 2)
-            }
-
             Spacer()
         }
     }
 
     private var reviewSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+            ReviewComposer(
+                text: $reviewBody,
+                disabled: inflightAction != nil
+            )
+
             HStack(spacing: 8) {
                 DetailActionButton(
                     title: "Approve",
                     systemImage: "checkmark.seal.fill",
                     style: .primary
                 ) {
-                    submitReview(event: .approve, body: nil)
+                    submitReview(event: .approve, body: reviewBody)
                 }
                 .disabled(inflightAction != nil)
+                .help("Approve this PR (comment optional)")
 
                 DetailActionButton(
                     title: "Request changes",
                     systemImage: "exclamationmark.bubble",
                     style: .secondary
                 ) {
-                    if reviewMode == .requestChanges {
-                        reviewMode = nil
-                    } else {
-                        reviewMode = .requestChanges
-                        actionError = nil
-                    }
+                    submitReview(event: .requestChanges, body: reviewBody)
                 }
-                .disabled(inflightAction != nil)
+                .disabled(inflightAction != nil || trimmedBody.isEmpty)
+                .help(trimmedBody.isEmpty
+                      ? "Add a comment to request changes"
+                      : "Submit as Request changes")
 
                 DetailActionButton(
                     title: "Comment",
                     systemImage: "text.bubble",
                     style: .secondary
                 ) {
-                    if reviewMode == .comment {
-                        reviewMode = nil
-                    } else {
-                        reviewMode = .comment
-                        actionError = nil
-                    }
+                    submitReview(event: .comment, body: reviewBody)
                 }
-                .disabled(inflightAction != nil)
+                .disabled(inflightAction != nil || trimmedBody.isEmpty)
+                .help(trimmedBody.isEmpty
+                      ? "Add a comment to leave a review comment"
+                      : "Submit as Comment")
 
                 if inflightAction == .review {
                     ProgressView()
@@ -1536,10 +1517,6 @@ private struct PRDetailPane: View {
                 Spacer()
             }
 
-            if let mode = reviewMode {
-                reviewComposer(mode: mode)
-            }
-
             if let err = actionError {
                 Text(err)
                     .font(.system(size: 12))
@@ -1547,61 +1524,47 @@ private struct PRDetailPane: View {
                     .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            if let nodeID = pr.nodeID {
+                draftToggleLink(nodeID: nodeID)
+            }
         }
     }
 
+    private var trimmedBody: String {
+        reviewBody.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Subtle text-style toggle that lives under the review buttons. Draft
+    /// flips are uncommon enough that a full button competing with Approve /
+    /// Request changes / Comment is overkill — a quiet inline link is plenty.
     @ViewBuilder
-    private func reviewComposer(mode: ReviewEvent) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextEditor(text: $reviewBody)
-                .font(.system(size: 13))
-                .frame(minHeight: 88, maxHeight: 200)
-                .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.04))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.primary.opacity(0.15), lineWidth: 0.7)
-                )
-                .overlay(alignment: .topLeading) {
-                    if reviewBody.isEmpty {
-                        Text(mode == .requestChanges
-                             ? "What needs to change?"
-                             : "Leave a comment…")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary.opacity(0.55))
-                            .padding(.horizontal, 13)
-                            .padding(.vertical, 16)
-                            .allowsHitTesting(false)
-                    }
+    private func draftToggleLink(nodeID: String) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                toggleDraft(nodeID: nodeID)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: pr.isDraft ? "arrow.up.right.circle" : "pencil.and.outline")
+                        .font(.system(size: 10, weight: .medium))
+                    Text(pr.isDraft ? "Mark ready for review" : "Convert to draft")
+                        .font(.system(size: 11, weight: .medium))
                 }
+                .foregroundColor(.secondary)
+                .padding(.vertical, 2)
+            }
+            .buttonStyle(.plain)
+            .disabled(inflightAction != nil)
+            .help(pr.isDraft
+                  ? "Move this PR out of draft state"
+                  : "Convert this PR back to draft")
 
-            HStack(spacing: 8) {
-                DetailActionButton(
-                    title: "Send review",
-                    systemImage: "paperplane.fill",
-                    style: .primary
-                ) {
-                    submitReview(event: mode, body: reviewBody)
-                }
-                .disabled(reviewBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                          || inflightAction != nil)
-
-                DetailActionButton(
-                    title: "Cancel",
-                    systemImage: "xmark",
-                    style: .secondary
-                ) {
-                    reviewMode = nil
-                    reviewBody = ""
-                }
-                .disabled(inflightAction != nil)
-
-                Spacer()
+            if inflightAction == .draft {
+                ProgressView()
+                    .controlSize(.small)
             }
         }
+        .padding(.top, 2)
     }
 
     private func toggleDraft(nodeID: String) {
@@ -1614,10 +1577,17 @@ private struct PRDetailPane: View {
         actionError = nil
         let client = GitHubClient(token: token, orgs: Config.orgs)
         let targetDraft = !pr.isDraft
+        let prID = pr.id
         Task {
             do {
                 try await client.setDraft(nodeID: nodeID, draft: targetDraft)
                 await MainActor.run {
+                    // GraphQL confirmed the flip — patch local state so the
+                    // label / badges update immediately. `/search/issues` is
+                    // eventually-consistent for the draft flag, so the
+                    // background sync alone leaves the UI stale for several
+                    // seconds.
+                    self.store.setLocalDraft(prID: prID, isDraft: targetDraft)
                     self.inflightAction = nil
                     self.store.sync()
                 }
@@ -1648,7 +1618,6 @@ private struct PRDetailPane: View {
                     event: event, body: trimmed
                 )
                 await MainActor.run {
-                    self.reviewMode = nil
                     self.reviewBody = ""
                     self.inflightAction = nil
                     self.store.sync()
@@ -1742,6 +1711,56 @@ private struct PRDetailPane: View {
                 }
             }
         }
+    }
+}
+
+/// Always-visible review composer. Starts compact (two lines tall when
+/// empty) and grows with content up to ~7 lines before scrolling internally.
+/// The placeholder is a single neutral string ("Leave a comment…") because
+/// the action buttons next door supply the verb — the textarea itself doesn't
+/// need to know whether you're approving or requesting changes.
+private struct ReviewComposer: View {
+    @Binding var text: String
+    let disabled: Bool
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // The TextField+axis growing API needs macOS 13+; the deployment
+            // target is already 13. Using TextField (not TextEditor) gives us
+            // a native focus ring, real placeholder behavior, and graceful
+            // single-line collapse when empty — none of which TextEditor does.
+            TextField("", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .lineLimit(2...7)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 9)
+                .focused($focused)
+                .disabled(disabled)
+
+            if text.isEmpty {
+                Text("Leave a comment…")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary.opacity(0.55))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .allowsHitTesting(false)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(focused ? 0.06 : 0.035))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(
+                    focused ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.13),
+                    lineWidth: focused ? 1.0 : 0.7
+                )
+        )
+        .animation(.easeOut(duration: 0.12), value: focused)
     }
 }
 
