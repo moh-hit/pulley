@@ -180,6 +180,46 @@ struct CheckRun: Codable, Hashable, Identifiable {
     }
 }
 
+/// A single GitHub notification thread (`/notifications`). Wraps the fields
+/// we actually render — the API also returns a `last_read_at` and a few
+/// other bookkeeping bits that we don't need.
+struct InboxThread: Identifiable, Hashable, Codable {
+    let id: String              // thread id, used for mark-as-read
+    let title: String
+    /// Subject type, e.g. "PullRequest" / "Issue" / "Discussion" / "Release".
+    let type: String
+    /// Why GitHub flagged this thread for you, e.g. "mention" /
+    /// "review_requested" / "author" / "comment" / "team_mention".
+    let reason: String
+    let org: String
+    let repo: String
+    let updatedAt: Date
+    /// `unread=false` rows arrive when the user opted to keep read items in
+    /// the list; today we only fetch unread, but we keep the field so future
+    /// "show read" toggles don't need a model change.
+    let unread: Bool
+    /// HTML URL — derived from the API subject URL by the client. May be nil
+    /// when the subject has no URL (rare).
+    let url: URL?
+
+    /// Human-friendly reason label for the row chip.
+    var reasonLabel: String {
+        switch reason {
+        case "mention":         return "mention"
+        case "team_mention":    return "team mention"
+        case "review_requested": return "review requested"
+        case "author":          return "author"
+        case "assign":          return "assigned"
+        case "comment":         return "comment"
+        case "state_change":    return "state change"
+        case "subscribed":      return "subscribed"
+        case "ci_activity":     return "CI"
+        case "security_alert":  return "security"
+        default:                return reason.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+}
+
 struct PR: Identifiable, Hashable, Codable {
     let id: String          // "org/repo#number"
     let number: Int
