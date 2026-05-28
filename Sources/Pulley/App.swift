@@ -243,7 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         let toggleSidebar = NSMenuItem(title: "Toggle Sidebar",
-                                       action: Selector(("toggleSidebar:")),
+                                       action: #selector(NSSplitViewController.toggleSidebar(_:)),
                                        keyEquivalent: "s")
         toggleSidebar.keyEquivalentModifierMask = [.command, .control]
         viewMenu.addItem(toggleSidebar)
