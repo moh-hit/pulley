@@ -8,6 +8,9 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+### Fixed
+- "Toggle Sidebar" menu item now uses `#selector(NSSplitViewController.toggleSidebar(_:))` instead of a loose `Selector("toggleSidebar:")`, clearing the compiler warning that had been riding along since 1.2.0.
+
 ## [1.3.1] - 2026-05-28
 
 ### Fixed
