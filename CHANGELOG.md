@@ -8,6 +8,15 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-28
+
+### Fixed
+- Build failure on the CI toolchain (Xcode 15.4 / Swift 5.10 strict
+  actor isolation): the per-row "Open in IDE" action called the
+  `@MainActor`-isolated `PRActions.checkoutAndOpen` from a nonisolated
+  Button closure. Wrapped in `MainActor.assumeIsolated` to match the
+  pattern already used by the detail pane.
+
 ## [1.3.0] - 2026-05-28
 
 ### Changed

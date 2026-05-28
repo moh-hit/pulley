@@ -980,7 +980,9 @@ private struct WindowPRRow: View {
                     help: "Open in \(Config.preferredIDE.displayName)"
                 ) {
                     checkingOut = true
-                    PRActions.checkoutAndOpen(pr: pr) { checkingOut = false }
+                    MainActor.assumeIsolated {
+                        PRActions.checkoutAndOpen(pr: pr) { checkingOut = false }
+                    }
                 }
             }
         }
