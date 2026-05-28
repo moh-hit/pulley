@@ -8,6 +8,8 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-29
+
 ### Added
 - **Inbox** view: a second top-level surface in the main window that
   shows your unread GitHub notifications. The inbox fetch runs in
@@ -141,7 +143,10 @@ to settings shape or filesystem layout.
 - Tag-push release pipeline (`.github/workflows/release.yml`) that
   builds an ad-hoc-signed DMG.
 
-[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/moh-hit/pulley/compare/v1.3.1...v1.4.0
+[1.3.1]: https://github.com/moh-hit/pulley/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/moh-hit/pulley/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/moh-hit/pulley/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/moh-hit/pulley/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/moh-hit/pulley/releases/tag/v1.0.1
