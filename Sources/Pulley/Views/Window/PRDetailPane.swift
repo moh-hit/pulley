@@ -28,6 +28,18 @@ struct PRDetailPane: View {
     @State private var filesCapped = false
     @State private var selectedFilePath: String? = nil
     @State private var collapsedDirs: Set<String> = []
+    @State private var draftComments: [String: ReviewDraftComment] = [:]
+    @State private var commentAnchor: DiffCommentLocation? = nil
+    @State private var activeDraftID: String? = nil
+    /// Inline comments already posted on the PR, shown read-only under their
+    /// diff line. Loaded with the files and refetched after a review submits.
+    @State private var reviewComments: [PRReviewComment] = []
+    /// Monotonic guard so a slow comment fetch (or post-submit reconcile) from a
+    /// previous PR can't clobber the list after the user has moved on.
+    @State private var commentsReloadToken = 0
+    /// Current user's login, used to attribute optimistically-shown comments
+    /// until the real fetch (with avatar) catches up.
+    @State private var myLogin: String? = nil
 
     // Review composer state. The textarea is always visible (single-line
     // tall when empty, grows to a few lines as you type); the three action
@@ -77,17 +89,23 @@ struct PRDetailPane: View {
         .onAppear {
             loadBody()
             loadFiles()
+            loadReviewComments()
+            if myLogin == nil { loadMyLogin() }
             syncFullScreen()
         }
         .onChange(of: pr.id) { _ in
             loadBody()
             loadFiles()
+            loadReviewComments()
             // Reset per-PR transient state so the textarea / error from one
             // PR doesn't leak into the next selection.
             reviewBody = ""
             actionError = nil
             inflightAction = nil
             showReview = false
+            draftComments = [:]
+            commentAnchor = nil
+            activeDraftID = nil
             tab = .summary
             selectedFilePath = nil
             collapsedDirs = []
@@ -101,6 +119,37 @@ struct PRDetailPane: View {
     /// diff master-detail has room; Summary keeps the normal list layout.
     private func syncFullScreen() {
         fullScreenDiff = (tab == .files)
+    }
+
+    private var sortedDraftComments: [ReviewDraftComment] {
+        draftComments.values.sorted { left, right in
+            if left.path != right.path { return left.path < right.path }
+            if left.line != right.line { return left.line < right.line }
+            return left.side.rawValue < right.side.rawValue
+        }
+    }
+
+    private var readyDraftComments: [ReviewDraftComment] {
+        sortedDraftComments.filter {
+            !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var inlineReviewComments: [ReviewInlineComment] {
+        readyDraftComments.map {
+            ReviewInlineComment(
+                path: $0.path,
+                side: $0.side,
+                startLine: $0.startLine,
+                startSide: $0.startSide,
+                line: $0.line,
+                body: $0.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+    }
+
+    private var hasReadyInlineDrafts: Bool {
+        !readyDraftComments.isEmpty
     }
 
     // MARK: Tabs
@@ -247,29 +296,41 @@ struct PRDetailPane: View {
                 Text("No file changes.").font(.system(size: 13)).foregroundColor(.secondary).italic()
             }
         } else {
-            // Master-detail: the file tree stays on the left while the selected
-            // file's diff fills the right, so the tree is always reachable.
-            HSplitView {
-                fileTreeSidebar
-                    .frame(minWidth: 240, idealWidth: 300, maxWidth: 380)
+            VStack(spacing: 0) {
+                // Master-detail: the file tree stays on the left while the selected
+                // file's diff fills the right, so the tree is always reachable.
+                HSplitView {
+                    fileTreeSidebar
+                        .frame(minWidth: 240, idealWidth: 300, maxWidth: 380)
 
-                Group {
-                    if let path = selectedFilePath, let file = files.first(where: { $0.id == path }) {
-                        FileDiffScreen(file: file)
-                    } else {
-                        centeredMessage {
-                            VStack(spacing: 8) {
-                                Image(systemName: "sidebar.left")
-                                    .font(.system(size: 26, weight: .light))
-                                    .foregroundColor(.secondary.opacity(0.35))
-                                Text("Select a file to view its diff.")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondary)
+                    Group {
+                        if let path = selectedFilePath, let file = files.first(where: { $0.id == path }) {
+                            FileDiffScreen(
+                                file: file,
+                                comments: reviewComments.filter { $0.path == file.filename },
+                                draftComments: $draftComments,
+                                commentAnchor: $commentAnchor,
+                                activeDraftID: $activeDraftID
+                            )
+                        } else {
+                            centeredMessage {
+                                VStack(spacing: 8) {
+                                    Image(systemName: "sidebar.left")
+                                        .font(.system(size: 26, weight: .light))
+                                        .foregroundColor(.secondary.opacity(0.35))
+                                    Text("Select a file to view its diff.")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
+                                }
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if !draftComments.isEmpty {
+                    inlineDraftSubmitBar
+                }
             }
         }
     }
@@ -462,49 +523,7 @@ struct PRDetailPane: View {
                 disabled: inflightAction != nil
             )
 
-            HStack(spacing: 8) {
-                DetailActionButton(
-                    title: "Approve",
-                    systemImage: "checkmark.seal.fill",
-                    style: .primary
-                ) {
-                    submitReview(event: .approve, body: reviewBody)
-                }
-                .disabled(inflightAction != nil)
-                .help("Approve this PR (comment optional)")
-
-                DetailActionButton(
-                    title: "Request changes",
-                    systemImage: "exclamationmark.bubble",
-                    style: .secondary
-                ) {
-                    submitReview(event: .requestChanges, body: reviewBody)
-                }
-                .disabled(inflightAction != nil || trimmedBody.isEmpty)
-                .help(trimmedBody.isEmpty
-                      ? "Add a comment to request changes"
-                      : "Submit as Request changes")
-
-                DetailActionButton(
-                    title: "Comment",
-                    systemImage: "text.bubble",
-                    style: .secondary
-                ) {
-                    submitReview(event: .comment, body: reviewBody)
-                }
-                .disabled(inflightAction != nil || trimmedBody.isEmpty)
-                .help(trimmedBody.isEmpty
-                      ? "Add a comment to leave a review comment"
-                      : "Submit as Comment")
-
-                if inflightAction == .review {
-                    ProgressView()
-                        .controlSize(.small)
-                        .padding(.leading, 2)
-                }
-
-                Spacer()
-            }
+            reviewActionButtons
 
             if let err = actionError {
                 Text(err)
@@ -513,6 +532,108 @@ struct PRDetailPane: View {
                     .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private var inlineDraftSubmitBar: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "text.bubble.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                Text("\(readyDraftComments.count) inline draft\(readyDraftComments.count == 1 ? "" : "s") ready")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.primary)
+                let emptyCount = draftComments.count - readyDraftComments.count
+                if emptyCount > 0 {
+                    Text("\(emptyCount) empty")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Capsule().fill(Color.primary.opacity(0.07)))
+                }
+                Spacer(minLength: 8)
+                Button {
+                    draftComments = [:]
+                    commentAnchor = nil
+                    activeDraftID = nil
+                } label: {
+                    Text("Discard all")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(inflightAction != nil)
+            }
+
+            ReviewComposer(text: $reviewBody, disabled: inflightAction != nil)
+            reviewActionButtons
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(NSColor.windowBackgroundColor))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 0.5)
+        }
+    }
+
+    private var reviewActionButtons: some View {
+        HStack(spacing: 8) {
+            DetailActionButton(
+                title: "Approve",
+                systemImage: "checkmark.seal.fill",
+                style: .primary
+            ) {
+                submitReview(event: .approve, body: reviewBody)
+            }
+            .disabled(inflightAction != nil || !canSubmitReview(event: .approve))
+            .help(hasReadyInlineDrafts
+                  ? "Approve this PR and submit inline drafts"
+                  : "Approve this PR (comment optional)")
+
+            DetailActionButton(
+                title: "Request changes",
+                systemImage: "exclamationmark.bubble",
+                style: .secondary
+            ) {
+                submitReview(event: .requestChanges, body: reviewBody)
+            }
+            .disabled(inflightAction != nil || !canSubmitReview(event: .requestChanges))
+            .help(canSubmitReview(event: .requestChanges)
+                  ? "Submit as Request changes"
+                  : "Add a summary or inline comment to request changes")
+
+            DetailActionButton(
+                title: "Comment",
+                systemImage: "text.bubble",
+                style: .secondary
+            ) {
+                submitReview(event: .comment, body: reviewBody)
+            }
+            .disabled(inflightAction != nil || !canSubmitReview(event: .comment))
+            .help(canSubmitReview(event: .comment)
+                  ? "Submit as Comment"
+                  : "Add a summary or inline comment to leave a review comment")
+
+            if inflightAction == .review {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.leading, 2)
+            }
+
+            Spacer()
+        }
+    }
+
+    private func canSubmitReview(event: ReviewEvent) -> Bool {
+        switch event {
+        case .approve:
+            return true
+        case .requestChanges, .comment:
+            return !trimmedBody.isEmpty || hasReadyInlineDrafts
         }
     }
 
@@ -599,16 +720,24 @@ struct PRDetailPane: View {
         inflightAction = .review
         actionError = nil
         let org = pr.org, repo = pr.repo, number = pr.number
+        let headSha = pr.headSha
+        let comments = inlineReviewComments
         let trimmed = body?.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             do {
                 try await client.submitReview(
                     org: org, repo: repo, number: number,
-                    event: event, body: trimmed
+                    event: event, body: trimmed,
+                    commitID: headSha,
+                    comments: comments
                 )
                 await MainActor.run {
                     self.reviewBody = ""
+                    self.draftComments = [:]
+                    self.commentAnchor = nil
+                    self.activeDraftID = nil
                     self.inflightAction = nil
+                    self.refreshAfterSubmittingComments(comments)
                     self.store.sync()
                 }
             } catch {
@@ -729,6 +858,79 @@ struct PRDetailPane: View {
                     self.filesError = error.localizedDescription
                     self.filesLoading = false
                 }
+            }
+        }
+    }
+
+    /// Load the PR's already-posted inline comments. Best-effort: a failure
+    /// (e.g. transient network) just leaves the diff showing drafts only, so we
+    /// swallow the error rather than surfacing it over the files view.
+    private func loadReviewComments() {
+        commentsReloadToken += 1
+        let token = commentsReloadToken
+        reviewComments = []
+        guard let client = Config.makeClient() else { return }
+        let org = pr.org, repo = pr.repo, number = pr.number
+        Task {
+            let fetched = (try? await client.fetchPRReviewComments(org: org, repo: repo, number: number)) ?? []
+            await MainActor.run {
+                guard self.commentsReloadToken == token else { return }
+                self.reviewComments = fetched
+            }
+        }
+    }
+
+    private func loadMyLogin() {
+        guard let client = Config.makeClient() else { return }
+        Task {
+            let login = try? await client.currentUserLogin()
+            await MainActor.run { if let login { self.myLogin = login } }
+        }
+    }
+
+    /// After submitting a review, GitHub's `GET /pulls/{n}/comments` feed lags a
+    /// beat behind the `POST`, so an immediate refetch misses the just-posted
+    /// comments. We show them optimistically right away, then poll a few times
+    /// with backoff and swap in the authoritative set (with avatars, real ids)
+    /// once the server has caught up. The token guard drops the result if the
+    /// user navigated to another PR meanwhile.
+    private func refreshAfterSubmittingComments(_ submitted: [ReviewInlineComment]) {
+        let optimistic = submitted.enumerated().map { idx, c in
+            PRReviewComment(
+                id: -(idx + 1),                       // negative ⇒ can't collide with real ids
+                authorLogin: myLogin ?? "you",
+                authorAvatarURL: nil,
+                body: c.body,
+                path: c.path,
+                side: c.side,
+                line: c.line,
+                startLine: c.startLine,
+                createdAt: Date(),
+                inReplyToID: nil
+            )
+        }
+        let target = reviewComments.count + optimistic.count
+        reviewComments.append(contentsOf: optimistic)
+
+        commentsReloadToken += 1
+        let token = commentsReloadToken
+        guard let client = Config.makeClient() else { return }
+        let org = pr.org, repo = pr.repo, number = pr.number
+        Task {
+            let delays: [UInt64] = [500_000_000, 1_500_000_000, 3_000_000_000]
+            for delay in delays {
+                try? await Task.sleep(nanoseconds: delay)
+                guard let fetched = try? await client.fetchPRReviewComments(org: org, repo: repo, number: number)
+                else { continue }
+                var stop = false
+                await MainActor.run {
+                    guard self.commentsReloadToken == token else { stop = true; return }
+                    if fetched.count >= target {        // server caught up — adopt authoritative set
+                        self.reviewComments = fetched
+                        stop = true
+                    }
+                }
+                if stop { break }
             }
         }
     }
@@ -1019,6 +1221,10 @@ private struct FileTreeRow: View {
 /// pane. The patch is parsed here so the tree stays cheap.
 private struct FileDiffScreen: View {
     let file: PRFile
+    let comments: [PRReviewComment]
+    @Binding var draftComments: [String: ReviewDraftComment]
+    @Binding var commentAnchor: DiffCommentLocation?
+    @Binding var activeDraftID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1056,7 +1262,15 @@ private struct FileDiffScreen: View {
             // view owns both scroll axes (see DiffPatchView).
             GeometryReader { geo in
                 if let patch = file.patch {
-                    DiffPatchView(hunks: parsePatch(patch), availableWidth: geo.size.width)
+                    DiffPatchView(
+                        path: file.filename,
+                        hunks: parsePatch(patch),
+                        availableWidth: geo.size.width,
+                        comments: comments,
+                        draftComments: $draftComments,
+                        commentAnchor: $commentAnchor,
+                        activeDraftID: $activeDraftID
+                    )
                 } else {
                     Text(file.status == "renamed" && file.changes == 0
                          ? "File renamed without changes."
@@ -1099,9 +1313,25 @@ private struct FileDiffScreen: View {
 /// files smooth — only on-screen rows are realized, and there's no nested
 /// vertical/horizontal scroll fighting over gestures.
 private struct DiffPatchView: View {
+    let path: String
     let hunks: [DiffHunk]
     /// Width of the diff pane, from the enclosing GeometryReader.
     let availableWidth: CGFloat
+    /// Already-posted comments for this file, rendered read-only under their line.
+    let comments: [PRReviewComment]
+    @Binding var draftComments: [String: ReviewDraftComment]
+    @Binding var commentAnchor: DiffCommentLocation?
+    @Binding var activeDraftID: String?
+
+    /// Coordinate space the row metrics and the gutter drag both resolve against,
+    /// so a cursor y-position maps to the same line the metrics were measured in.
+    static let coordSpace = "diffContent"
+
+    /// Vertical extent of every commentable line, kept fresh from row previews so
+    /// `lineAt(_:side:)` can resolve the line under the dragging cursor.
+    @State private var lineMetrics: [DiffLineMetric] = []
+    /// Live highlight while a gutter drag is in flight; nil when idle.
+    @State private var dragSelection: DragRangeSelection? = nil
 
     /// Width wide enough to hold the longest line so every row's tint spans the
     /// same width (uniform background) and the horizontal scroller reveals the
@@ -1119,6 +1349,8 @@ private struct DiffPatchView: View {
     private var contentWidth: CGFloat { max(estimatedWidth, availableWidth) }
 
     var body: some View {
+        // Group posted comments by endpoint once per render, not per row.
+        let byEndpoint = commentsByEndpoint
         ScrollView([.vertical, .horizontal], showsIndicators: true) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(hunks) { hunk in
@@ -1130,36 +1362,205 @@ private struct DiffPatchView: View {
                         .frame(width: contentWidth, alignment: .leading)
                         .background(Color.accentColor.opacity(0.08))
                     ForEach(hunk.lines) { line in
-                        DiffLineRow(line: line, width: contentWidth)
+                        DiffLineRow(
+                            path: path,
+                            line: line,
+                            width: contentWidth,
+                            comments: endpointKey(for: line).flatMap { byEndpoint[$0] } ?? [],
+                            draftComments: $draftComments,
+                            commentAnchor: $commentAnchor,
+                            activeDraftID: $activeDraftID,
+                            dragSelection: dragSelection,
+                            lineAt: { y, side in lineAt(y, side: side) },
+                            setDragSelection: { dragSelection = $0 },
+                            commitRange: { p, s, lo, hi in finalizeRange(path: p, side: s, low: lo, high: hi) }
+                        )
                     }
                 }
             }
             .padding(.bottom, 24)
+            .coordinateSpace(name: Self.coordSpace)
+            .onPreferenceChange(DiffLineMetricsKey.self) { lineMetrics = $0 }
         }
+    }
+
+    /// Posted comments grouped by their anchored endpoint key ("SIDE#line"),
+    /// each thread sorted oldest-first. Comments GitHub couldn't map into the
+    /// current diff (nil `line`) are dropped.
+    private var commentsByEndpoint: [String: [PRReviewComment]] {
+        let grouped = Dictionary(grouping: comments.filter { $0.line != nil }) {
+            "\($0.side.rawValue)#\($0.line!)"
+        }
+        return grouped.mapValues { $0.sorted { $0.createdAt < $1.createdAt } }
+    }
+
+    /// Endpoint key a row's comments live under — additions/context anchor to the
+    /// RIGHT (new) line, deletions to the LEFT (old) line, matching how comments
+    /// are posted. Mirrors `DiffLineRow.commentLocation`.
+    private func endpointKey(for line: DiffLine) -> String? {
+        switch line.kind {
+        case .addition: return line.newLine.map { "RIGHT#\($0)" }
+        case .deletion: return line.oldLine.map { "LEFT#\($0)" }
+        case .context:  return line.newLine.map { "RIGHT#\($0)" }
+        }
+    }
+
+    /// Resolve the line under cursor y-position `y`, restricted to `side` (GitHub
+    /// only allows a multi-line comment to span a single side of the diff). Falls
+    /// back to the nearest same-side line so dragging past the ends still clamps.
+    private func lineAt(_ y: CGFloat, side: ReviewCommentSide) -> Int? {
+        let sided = lineMetrics.filter { $0.side == side }
+        if sided.isEmpty { return nil }
+        if let hit = sided.first(where: { y >= $0.minY && y <= $0.maxY }) { return hit.line }
+        return sided.min(by: { distance($0, y) < distance($1, y) })?.line
+    }
+
+    private func distance(_ m: DiffLineMetric, _ y: CGFloat) -> CGFloat {
+        if y < m.minY { return m.minY - y }
+        if y > m.maxY { return y - m.maxY }
+        return 0
+    }
+
+    /// Commit a gutter-drag selection to a draft. A single line opens a normal
+    /// single-line draft; a span produces a range draft (carrying any body from a
+    /// draft that already sat on either endpoint), then opens it for editing.
+    private func finalizeRange(path: String, side: ReviewCommentSide, low: Int, high: Int) {
+        if low == high {
+            let id = ReviewDraftComment.id(path: path, side: side, line: low)
+            if draftComments[id] == nil {
+                draftComments[id] = ReviewDraftComment(path: path, side: side, line: low)
+            }
+            commentAnchor = DiffCommentLocation(path: path, side: side, line: low)
+            activeDraftID = id
+            return
+        }
+
+        let lowSingleID = ReviewDraftComment.id(path: path, side: side, line: low)
+        let highSingleID = ReviewDraftComment.id(path: path, side: side, line: high)
+        let carriedBody = activeDraftID.flatMap { draftComments[$0]?.body }
+            ?? draftComments[lowSingleID]?.body
+            ?? draftComments[highSingleID]?.body
+            ?? ""
+        draftComments[lowSingleID] = nil
+        draftComments[highSingleID] = nil
+
+        let id = ReviewDraftComment.id(path: path, side: side, line: high, startLine: low, startSide: side)
+        draftComments[id] = ReviewDraftComment(
+            path: path,
+            side: side,
+            line: high,
+            startLine: low,
+            startSide: side,
+            body: carriedBody
+        )
+        commentAnchor = DiffCommentLocation(path: path, side: side, line: high)
+        activeDraftID = id
     }
 }
 
 /// Combined width of the two line-number gutters (`gutter` frame + trailing pad).
 private let gutterColumnsWidth: CGFloat = (38 + 4) * 2
 
+private struct DiffCommentLocation: Hashable {
+    let path: String
+    let side: ReviewCommentSide
+    let line: Int
+}
+
+/// A range of lines highlighted live while the user drags across the gutter,
+/// before the drag ends and a range draft is committed.
+private struct DragRangeSelection: Equatable {
+    let path: String
+    let side: ReviewCommentSide
+    let low: Int
+    let high: Int
+}
+
+/// Vertical extent (in the diff content's coordinate space) of one commentable
+/// line. Published by each row via a preference so the drag handler can map a
+/// cursor y-position back to the line under it.
+private struct DiffLineMetric: Equatable {
+    let side: ReviewCommentSide
+    let line: Int
+    let minY: CGFloat
+    let maxY: CGFloat
+}
+
+private struct DiffLineMetricsKey: PreferenceKey {
+    static var defaultValue: [DiffLineMetric] = []
+    static func reduce(value: inout [DiffLineMetric], nextValue: () -> [DiffLineMetric]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 /// A single diff line: old/new line-number gutters, then the marker + content,
 /// tinted green for additions and red for deletions.
 private struct DiffLineRow: View {
+    let path: String
     let line: DiffLine
     let width: CGFloat
+    /// Already-posted comments anchored at this line (oldest-first), if any.
+    let comments: [PRReviewComment]
+    @Binding var draftComments: [String: ReviewDraftComment]
+    @Binding var commentAnchor: DiffCommentLocation?
+    @Binding var activeDraftID: String?
+    let dragSelection: DragRangeSelection?
+    /// Resolve the line under a cursor y (in the diff content space), same side.
+    let lineAt: (CGFloat, ReviewCommentSide) -> Int?
+    /// Update the live drag highlight (nil clears it).
+    let setDragSelection: (DragRangeSelection?) -> Void
+    /// Commit a multi-line range (path, side, low, high) as a draft.
+    let commitRange: (String, ReviewCommentSide, Int, Int) -> Void
+    @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            gutter(line.oldLine)
-            gutter(line.newLine)
-            Text(marker + line.text)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.primary)
-                .padding(.leading, 6)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    gutter(line.oldLine)
+                    gutter(line.newLine)
+
+                    Text(marker + line.text)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.primary)
+                        .padding(.leading, 6)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 8)
+                }
+                .contentShape(Rectangle())
+                .gesture(rangeDragGesture)
+                .help(isCommentable ? "Click to comment · drag to select a range" : "")
+
+                commentAffordance
+            }
+            .padding(.vertical, 1)
+            .frame(width: width, alignment: .leading)
+            .background(rowBackground)
+            .background(metricReporter)
+            .onHover { hovered = $0 }
+
+            if !comments.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(comments) { comment in
+                        PostedCommentRow(comment: comment, isReply: comment.inReplyToID != nil)
+                    }
+                }
+                .frame(width: width, alignment: .leading)
+            }
+
+            if let id = endpointDraftID, let draft = draftComments[id] {
+                InlineDraftCommentEditor(
+                    text: draftBodyBinding(id: id),
+                    location: draftLocationLabel(draft),
+                    onDelete: {
+                        draftComments[id] = nil
+                        if activeDraftID == id { activeDraftID = nil }
+                    }
+                )
+                .frame(width: width, alignment: .leading)
+            }
         }
-        .padding(.vertical, 1)
-        .frame(width: width, alignment: .leading)
-        .background(background)
     }
 
     private func gutter(_ n: Int?) -> some View {
@@ -1170,6 +1571,25 @@ private struct DiffLineRow: View {
             .padding(.trailing, 4)
     }
 
+    private var commentAffordance: some View {
+        Button(action: handleLineTap) {
+            Image(systemName: hasReadyDraft ? "text.bubble.fill" : "plus.bubble")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(hasDraft ? .accentColor : .secondary.opacity(0.75))
+                .frame(width: 22, height: 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                )
+        }
+        .buttonStyle(.plain)
+        .help(hasDraft ? "Edit draft comment" : "Add draft comment")
+        .opacity(isCommentable && (hovered || hasDraft) ? 1 : 0)
+        .allowsHitTesting(isCommentable && (hovered || hasDraft))
+        .frame(width: 28, alignment: .trailing)
+        .padding(.trailing, 6)
+    }
+
     private var marker: String {
         switch line.kind {
         case .addition: return "+"
@@ -1178,12 +1598,323 @@ private struct DiffLineRow: View {
         }
     }
 
-    private var background: Color {
+    /// Press anywhere on the line and drag to select a range; release to commit.
+    /// `minimumDistance: 0` means the gesture owns every press on the row, so it
+    /// no longer races a separate tap recognizer (the old source of misfires) —
+    /// release decides: same line ⇒ single-line click, different line ⇒ range.
+    /// Coordinates resolve in the shared content space so `value.location.y`
+    /// maps back to the line under the cursor.
+    private var rangeDragGesture: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(DiffPatchView.coordSpace))
+            .onChanged { value in
+                guard let anchor = commentLocation else { return }
+                let current = lineAt(value.location.y, anchor.side) ?? anchor.line
+                if current == anchor.line {
+                    setDragSelection(nil)
+                } else {
+                    setDragSelection(DragRangeSelection(
+                        path: anchor.path, side: anchor.side,
+                        low: min(anchor.line, current), high: max(anchor.line, current)
+                    ))
+                }
+            }
+            .onEnded { value in
+                guard let anchor = commentLocation else { return }
+                setDragSelection(nil)
+                let current = lineAt(value.location.y, anchor.side) ?? anchor.line
+                if current == anchor.line {
+                    handleLineTap()
+                } else {
+                    commitRange(anchor.path, anchor.side, min(anchor.line, current), max(anchor.line, current))
+                }
+            }
+    }
+
+    /// Publishes this line's vertical extent so the drag handler can map a cursor
+    /// y back to a line. Only commentable lines contribute (others can't anchor a
+    /// range), measured in the same coordinate space the drag reads.
+    private var metricReporter: some View {
+        GeometryReader { geo in
+            Color.clear.preference(
+                key: DiffLineMetricsKey.self,
+                value: commentLocation.map {
+                    let frame = geo.frame(in: .named(DiffPatchView.coordSpace))
+                    return [DiffLineMetric(side: $0.side, line: $0.line, minY: frame.minY, maxY: frame.maxY)]
+                } ?? []
+            )
+        }
+    }
+
+    private var isDragSelected: Bool {
+        guard let selection = dragSelection, let location = commentLocation else { return false }
+        return selection.path == location.path
+            && selection.side == location.side
+            && (selection.low...selection.high).contains(location.line)
+    }
+
+    private var rowBackground: Color {
+        if isDragSelected { return Color.accentColor.opacity(0.22) }
+        if isActiveLine { return Color.accentColor.opacity(0.18) }
+        if isDraftLine { return Color.accentColor.opacity(0.10) }
+        if hovered { return Color.accentColor.opacity(0.07) }
         switch line.kind {
         case .addition: return Color.green.opacity(0.14)
         case .deletion: return Color.red.opacity(0.14)
         case .context:  return .clear
         }
+    }
+
+    private var commentLocation: DiffCommentLocation? {
+        switch line.kind {
+        case .addition:
+            return line.newLine.map { DiffCommentLocation(path: path, side: .right, line: $0) }
+        case .deletion:
+            return line.oldLine.map { DiffCommentLocation(path: path, side: .left, line: $0) }
+        case .context:
+            return line.newLine.map { DiffCommentLocation(path: path, side: .right, line: $0) }
+        }
+    }
+
+    private var isCommentable: Bool {
+        commentLocation != nil
+    }
+
+    private var endpointDraftID: String? {
+        guard let location = commentLocation else { return nil }
+        return draftComments.values.first {
+            $0.path == location.path && $0.side == location.side && $0.line == location.line
+        }?.id
+    }
+
+    private var hasDraft: Bool {
+        endpointDraftID.flatMap { draftComments[$0] } != nil
+    }
+
+    private var hasReadyDraft: Bool {
+        guard let id = endpointDraftID, let draft = draftComments[id] else { return false }
+        return !draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isDraftLine: Bool {
+        guard let location = commentLocation else { return false }
+        return draftComments.values.contains {
+            $0.contains(path: location.path, side: location.side, line: location.line)
+        }
+    }
+
+    private var isActiveLine: Bool {
+        guard let location = commentLocation,
+              let activeDraftID,
+              let draft = draftComments[activeDraftID] else { return false }
+        return draft.contains(path: location.path, side: location.side, line: location.line)
+    }
+
+    private func draftLocationLabel(_ draft: ReviewDraftComment) -> String {
+        "\(draft.locationLabel) (\(draft.side.label))"
+    }
+
+    private func handleLineTap() {
+        guard let location = commentLocation else { return }
+        if isShiftClick, let anchor = commentAnchor,
+           anchor.path == location.path, anchor.side == location.side {
+            createRangeDraft(from: anchor, to: location)
+        } else {
+            if let existingID = endpointDraftID {
+                commentAnchor = location
+                activeDraftID = existingID
+                return
+            }
+            let id = ReviewDraftComment.id(path: path, side: location.side, line: location.line)
+            if draftComments[id] == nil {
+                draftComments[id] = ReviewDraftComment(
+                    path: path,
+                    side: location.side,
+                    line: location.line
+                )
+            }
+            commentAnchor = location
+            activeDraftID = id
+        }
+    }
+
+    private var isShiftClick: Bool {
+        NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
+    }
+
+    private func createRangeDraft(from anchor: DiffCommentLocation, to location: DiffCommentLocation) {
+        let startLine = min(anchor.line, location.line)
+        let endLine = max(anchor.line, location.line)
+        if startLine == endLine {
+            let id = ReviewDraftComment.id(path: location.path, side: location.side, line: location.line)
+            if draftComments[id] == nil {
+                draftComments[id] = ReviewDraftComment(
+                    path: location.path,
+                    side: location.side,
+                    line: location.line
+                )
+            }
+            activeDraftID = id
+            return
+        }
+
+        let singleAnchorID = ReviewDraftComment.id(path: anchor.path, side: anchor.side, line: anchor.line)
+        let singleTargetID = ReviewDraftComment.id(path: location.path, side: location.side, line: location.line)
+        let carriedBody = activeDraftID.flatMap { draftComments[$0]?.body }
+            ?? draftComments[singleAnchorID]?.body
+            ?? draftComments[singleTargetID]?.body
+            ?? ""
+
+        if let activeDraftID { draftComments[activeDraftID] = nil }
+        draftComments[singleAnchorID] = nil
+        draftComments[singleTargetID] = nil
+
+        let id = ReviewDraftComment.id(
+            path: location.path,
+            side: location.side,
+            line: endLine,
+            startLine: startLine,
+            startSide: anchor.side
+        )
+        draftComments[id] = ReviewDraftComment(
+            path: location.path,
+            side: location.side,
+            line: endLine,
+            startLine: startLine,
+            startSide: anchor.side,
+            body: carriedBody
+        )
+        activeDraftID = id
+    }
+
+    private func draftBodyBinding(id: String) -> Binding<String> {
+        Binding(
+            get: { draftComments[id]?.body ?? "" },
+            set: { newValue in
+                guard var draft = draftComments[id] else { return }
+                draft.body = newValue
+                draftComments[id] = draft
+            }
+        )
+    }
+}
+
+private struct InlineDraftCommentEditor: View {
+    @Binding var text: String
+    let location: String
+    let onDelete: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "text.bubble")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.accentColor)
+                .frame(width: 18)
+                .padding(.top, 10)
+
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Text("Draft comment")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.primary)
+                    Text(location)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Discard draft comment")
+                }
+
+                TextField("Leave an inline comment…", text: $text, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .lineLimit(2...6)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 8)
+                    .focused($focused)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.primary.opacity(focused ? 0.06 : 0.035))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(
+                                focused ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.12),
+                                lineWidth: focused ? 1.0 : 0.7
+                            )
+                    )
+            }
+        }
+        .padding(.leading, gutterColumnsWidth + 10)
+        .padding(.trailing, 14)
+        .padding(.vertical, 8)
+        .background(Color.accentColor.opacity(0.055))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.55))
+                .frame(width: 3)
+                .padding(.leading, gutterColumnsWidth + 2)
+        }
+        .onAppear { focused = true }
+    }
+}
+
+/// One already-posted inline comment, rendered read-only beneath its diff line.
+/// Aligned under the code (past the gutters) like the draft editor, but with a
+/// neutral card and grey rail so it reads as existing discussion rather than an
+/// editable draft. Replies indent slightly under their parent.
+private struct PostedCommentRow: View {
+    let comment: PRReviewComment
+    let isReply: Bool
+
+    private var indent: CGFloat { isReply ? 22 : 0 }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            avatar
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(comment.authorLogin)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                    Text(relativeTime(comment.createdAt))
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.secondary)
+                    Spacer(minLength: 0)
+                }
+                MarkdownView(text: comment.body, bodyDesign: .default, bodySize: 13)
+            }
+        }
+        .padding(.vertical, 9)
+        .padding(.leading, gutterColumnsWidth + 12 + indent)
+        .padding(.trailing, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.035))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.4))
+                .frame(width: 3)
+                .padding(.leading, gutterColumnsWidth + 2 + indent)
+        }
+    }
+
+    private var avatar: some View {
+        AsyncImage(url: comment.authorAvatarURL) { image in
+            image.resizable().aspectRatio(contentMode: .fill)
+        } placeholder: {
+            Color.secondary.opacity(0.15)
+        }
+        .frame(width: 18, height: 18)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+        .padding(.top, 1)
     }
 }
 

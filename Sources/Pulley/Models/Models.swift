@@ -286,6 +286,104 @@ enum ReviewEvent: String, Sendable {
     case comment         = "COMMENT"
 }
 
+/// Side of the pull-request diff a review comment attaches to. GitHub expects
+/// these exact uppercase raw values in the review `comments` payload.
+enum ReviewCommentSide: String, Codable, Hashable, Sendable {
+    case left  = "LEFT"
+    case right = "RIGHT"
+
+    var label: String {
+        switch self {
+        case .left:  return "old"
+        case .right: return "new"
+        }
+    }
+}
+
+/// Local, unsent inline review comment draft. Drafts are kept in memory by the
+/// detail pane and converted to `ReviewInlineComment` when the review submits.
+struct ReviewDraftComment: Identifiable, Hashable {
+    let id: String
+    let path: String
+    let side: ReviewCommentSide
+    let startLine: Int?
+    let startSide: ReviewCommentSide?
+    let line: Int
+    var body: String
+
+    init(
+        path: String,
+        side: ReviewCommentSide,
+        line: Int,
+        startLine: Int? = nil,
+        startSide: ReviewCommentSide? = nil,
+        body: String = ""
+    ) {
+        self.path = path
+        self.side = side
+        self.line = line
+        self.startLine = startLine == line ? nil : startLine
+        self.startSide = startLine == line ? nil : startSide
+        self.body = body
+        self.id = Self.id(path: path, side: side, line: line, startLine: startLine, startSide: startSide)
+    }
+
+    static func id(
+        path: String,
+        side: ReviewCommentSide,
+        line: Int,
+        startLine: Int? = nil,
+        startSide: ReviewCommentSide? = nil
+    ) -> String {
+        let start = startLine.map { "\(startSide?.rawValue ?? side.rawValue)#\($0)" } ?? "single"
+        return "\(path)#\(start)#\(side.rawValue)#\(line)"
+    }
+
+    var locationLabel: String {
+        if let startLine, startLine != line {
+            return "\(path):\(startLine)-\(line)"
+        }
+        return "\(path):\(line)"
+    }
+
+    func contains(path candidatePath: String, side candidateSide: ReviewCommentSide, line candidateLine: Int) -> Bool {
+        guard path == candidatePath, side == candidateSide else { return false }
+        let lower = min(startLine ?? line, line)
+        let upper = max(startLine ?? line, line)
+        return (lower...upper).contains(candidateLine)
+    }
+}
+
+/// API-ready inline review comment. Separated from `ReviewDraftComment` so the
+/// client can receive only trimmed, non-empty bodies.
+struct ReviewInlineComment: Hashable, Sendable {
+    let path: String
+    let side: ReviewCommentSide
+    let startLine: Int?
+    let startSide: ReviewCommentSide?
+    let line: Int
+    let body: String
+}
+
+/// An inline review comment already posted to the PR, fetched from
+/// `GET /pulls/{n}/comments` and rendered read-only under its diff line so a
+/// reviewer sees existing discussion alongside their own drafts. `line` is the
+/// (end) line the comment anchors to on its `side`; nil when GitHub no longer
+/// maps it into the current diff (outdated), in which case it's skipped.
+struct PRReviewComment: Identifiable, Hashable, Sendable {
+    let id: Int
+    let authorLogin: String
+    let authorAvatarURL: URL?
+    let body: String
+    let path: String
+    let side: ReviewCommentSide
+    let line: Int?
+    let startLine: Int?
+    let createdAt: Date
+    /// Set when this comment is a reply to another (threaded under its parent).
+    let inReplyToID: Int?
+}
+
 // MARK: - Changed files / diffs
 
 /// One entry from `GET /repos/{org}/{repo}/pulls/{number}/files`. Decoded via

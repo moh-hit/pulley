@@ -230,19 +230,83 @@ struct GitHubClient: Sendable {
         return (files, files.count >= 100)
     }
 
+    /// Fetch the inline review comments already posted on a PR
+    /// (`GET /pulls/{n}/comments`). Paginated at 100/page; bounded to
+    /// `maxPages` so a pathological thread can't stall the diff view. Best-effort
+    /// from the caller's side — the diff still renders if this throws.
+    func fetchPRReviewComments(org: String, repo: String, number: Int) async throws -> [PRReviewComment] {
+        struct GHUserDTO: Decodable { let login: String; let avatarUrl: URL? }
+        struct GHReviewCommentDTO: Decodable {
+            let id: Int
+            let user: GHUserDTO?
+            let body: String
+            let path: String
+            let side: String?
+            let line: Int?
+            let originalLine: Int?
+            let startLine: Int?
+            let createdAt: Date
+            let inReplyToId: Int?
+        }
+        let maxPages = 10
+        var out: [PRReviewComment] = []
+        var page = 1
+        while page <= maxPages {
+            let batch: [GHReviewCommentDTO] = try await fetch(
+                "/repos/\(org)/\(repo)/pulls/\(number)/comments?per_page=100&page=\(page)",
+                as: [GHReviewCommentDTO].self
+            )
+            out.append(contentsOf: batch.map { dto in
+                PRReviewComment(
+                    id: dto.id,
+                    authorLogin: dto.user?.login ?? "ghost",
+                    authorAvatarURL: dto.user?.avatarUrl,
+                    body: dto.body,
+                    path: dto.path,
+                    side: dto.side.flatMap { ReviewCommentSide(rawValue: $0) } ?? .right,
+                    line: dto.line ?? dto.originalLine,
+                    startLine: dto.startLine,
+                    createdAt: dto.createdAt,
+                    inReplyToID: dto.inReplyToId
+                )
+            })
+            if batch.count < 100 { break }
+            page += 1
+        }
+        return out
+    }
+
     /// POST a pull-request review. `event = .approve` accepts an empty body;
     /// `.requestChanges` / `.comment` require one (GitHub returns 422
     /// otherwise — we let that bubble up rather than client-side validating,
     /// since the UI prevents it).
     func submitReview(
         org: String, repo: String, number: Int,
-        event: ReviewEvent, body: String?
+        event: ReviewEvent, body: String?,
+        commitID: String? = nil,
+        comments: [ReviewInlineComment] = []
     ) async throws {
         var req = request("/repos/\(org)/\(repo)/pulls/\(number)/reviews")
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var payload: [String: Any] = ["event": event.rawValue]
         if let body, !body.isEmpty { payload["body"] = body }
+        if let commitID, !commitID.isEmpty { payload["commit_id"] = commitID }
+        if !comments.isEmpty {
+            payload["comments"] = comments.map { comment in
+                var item: [String: Any] = [
+                    "path": comment.path,
+                    "side": comment.side.rawValue,
+                    "line": comment.line,
+                    "body": comment.body,
+                ]
+                if let startLine = comment.startLine {
+                    item["start_line"] = startLine
+                    item["start_side"] = (comment.startSide ?? comment.side).rawValue
+                }
+                return item
+            }
+        }
         req.httpBody = try JSONSerialization.data(withJSONObject: payload)
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse,

@@ -5,9 +5,14 @@ import Foundation
 
 struct MarkdownView: View {
     let text: String
+    /// Body/quote typeface. Defaults to serif for the PR description's prose
+    /// look; inline review comments pass `.default` so they sit naturally in the
+    /// monospaced diff instead of looking out of place.
+    var bodyDesign: Font.Design = .serif
+    var bodySize: CGFloat = 14
 
-    private static let bodyFont   = Font.system(size: 14, design: .serif)
-    private static let quoteFont  = Font.system(size: 14, design: .serif).italic()
+    private var bodyFont: Font  { .system(size: bodySize, design: bodyDesign) }
+    private var quoteFont: Font { .system(size: bodySize, design: bodyDesign).italic() }
     private static let listFont   = Font.system(size: 13)
     private static let codeFont   = Font.system(size: 12, design: .monospaced)
 
@@ -39,7 +44,7 @@ struct MarkdownView: View {
 
         case .paragraph(let s):
             Text(inline(s))
-                .font(Self.bodyFont)
+                .font(bodyFont)
                 .lineSpacing(4)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -137,7 +142,7 @@ struct MarkdownView: View {
                     .fill(Color.accentColor.opacity(0.55))
                     .frame(width: 2.5)
                 Text(inline(lines.joined(separator: "\n")))
-                    .font(Self.quoteFont)
+                    .font(quoteFont)
                     .foregroundColor(.secondary)
                     .lineSpacing(3)
                     .textSelection(.enabled)
