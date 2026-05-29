@@ -178,6 +178,15 @@ struct CheckRun: Codable, Hashable, Identifiable {
         default:                                     return .neutral
         }
     }
+
+    /// Compact label aligned with GitHub's wording: the conclusion for
+    /// completed runs, otherwise the (de-underscored) raw status.
+    var stateLabel: String {
+        if status != "completed" {
+            return status.replacingOccurrences(of: "_", with: " ")
+        }
+        return conclusion ?? "completed"
+    }
 }
 
 /// A single GitHub notification thread (`/notifications`). Wraps the fields
@@ -241,6 +250,32 @@ struct PR: Identifiable, Hashable, Codable {
     /// flip draft / ready-for-review. Optional so cached blobs from before
     /// this field existed decode cleanly with `nil`; next sync fills it in.
     let nodeID: String?
+
+    /// Copy with a flipped draft flag. PR's fields are immutable, so the
+    /// optimistic draft toggles in `Store` would otherwise re-list every
+    /// field by hand — this keeps that in one place that the compiler checks
+    /// whenever a field is added.
+    func with(isDraft: Bool) -> PR {
+        PR(
+            id: id,
+            number: number,
+            title: title,
+            org: org,
+            repo: repo,
+            url: url,
+            branch: branch,
+            headSha: headSha,
+            assignee: assignee,
+            status: status,
+            isDraft: isDraft,
+            updatedAt: updatedAt,
+            createdAt: createdAt,
+            checks: checks,
+            checkStatus: checkStatus,
+            mergeableState: mergeableState,
+            nodeID: nodeID
+        )
+    }
 }
 
 /// Review event passed to `POST /repos/.../pulls/N/reviews`. Raw values are
@@ -249,4 +284,125 @@ enum ReviewEvent: String, Sendable {
     case approve         = "APPROVE"
     case requestChanges  = "REQUEST_CHANGES"
     case comment         = "COMMENT"
+}
+
+// MARK: - Changed files / diffs
+
+/// One entry from `GET /repos/{org}/{repo}/pulls/{number}/files`. Decoded via
+/// `JSONDecoder.gh` (convertFromSnakeCase), so JSON `blob_url` /
+/// `previous_filename` map to these camelCase properties automatically — do
+/// NOT add CodingKeys, that would fight the strategy. `patch`, `blobUrl`, and
+/// `previousFilename` are optional because GitHub omits them per row (no patch
+/// for binary / too-large files; previousFilename only on renames).
+struct PRFile: Codable, Hashable, Identifiable {
+    let sha: String
+    let filename: String
+    /// added | modified | removed | renamed | copied | changed | unchanged
+    let status: String
+    let additions: Int
+    let deletions: Int
+    let changes: Int
+    let blobUrl: URL?
+    let patch: String?
+    let previousFilename: String?
+
+    /// Keyed on path, which is unique within a PR. Blob `sha` can repeat across
+    /// renamed/copied pairs, so it's unsuitable for `ForEach` identity.
+    var id: String { filename }
+
+    var statusGlyph: String {
+        switch status {
+        case "added":   return "plus.square.fill"
+        case "removed": return "minus.square.fill"
+        case "renamed": return "arrow.right.square.fill"
+        default:        return "pencil"     // modified / copied / changed
+        }
+    }
+}
+
+/// A single rendered line of a unified diff, with reconstructed old/new line
+/// numbers for the gutter. One side is `nil` for added/removed lines.
+struct DiffLine: Identifiable, Hashable {
+    enum Kind { case context, addition, deletion }
+    let id: Int
+    let kind: Kind
+    let oldLine: Int?
+    let newLine: Int?
+    /// Content with the leading +/-/space marker stripped.
+    let text: String
+}
+
+/// A contiguous `@@ … @@` block of a unified diff.
+struct DiffHunk: Identifiable, Hashable {
+    let id: Int
+    let header: String      // raw "@@ -a,b +c,d @@ section" line
+    let lines: [DiffLine]
+}
+
+/// Parse a unified-diff `patch` (as returned by the PR files endpoint) into
+/// hunks with reconstructed line numbers. The files endpoint strips the
+/// `diff --git` / `---` / `+++` file headers, so the patch starts directly at
+/// a `@@` hunk header. Counters advance per the line's own side: additions
+/// move the new counter, deletions the old, context both.
+func parsePatch(_ patch: String) -> [DiffHunk] {
+    var hunks: [DiffHunk] = []
+    var hunkID = 0
+    var lineID = 0
+    var header: String? = nil
+    var lines: [DiffLine] = []
+    var oldNo = 0, newNo = 0
+
+    func flush() {
+        if let h = header {
+            hunks.append(DiffHunk(id: hunkID, header: h, lines: lines))
+            hunkID += 1
+        }
+        header = nil
+        lines = []
+    }
+
+    for raw in patch.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+        if raw.hasPrefix("@@") {
+            flush()
+            if let (os, ns) = parseHunkRanges(raw) { oldNo = os; newNo = ns }
+            header = raw
+            continue
+        }
+        guard header != nil else { continue }   // ignore anything before first @@
+        let marker = raw.first
+        let text = raw.isEmpty ? "" : String(raw.dropFirst())
+        switch marker {
+        case "+":
+            lines.append(DiffLine(id: lineID, kind: .addition, oldLine: nil, newLine: newNo, text: text))
+            newNo += 1
+        case "-":
+            lines.append(DiffLine(id: lineID, kind: .deletion, oldLine: oldNo, newLine: nil, text: text))
+            oldNo += 1
+        case "\\":
+            continue                              // "\ No newline at end of file"
+        default:                                  // " " context, or empty line
+            lines.append(DiffLine(id: lineID, kind: .context, oldLine: oldNo, newLine: newNo, text: text))
+            oldNo += 1; newNo += 1
+        }
+        lineID += 1
+    }
+    flush()
+    return hunks
+}
+
+/// Extract `oldStart` / `newStart` from a `@@ -a,b +c,d @@ …` header. Counts
+/// are optional in the format (`@@ -1 +1 @@`), so we take the part before any
+/// comma.
+private func parseHunkRanges(_ header: String) -> (Int, Int)? {
+    let parts = header.split(separator: "@", omittingEmptySubsequences: true)
+    guard let ranges = parts.first?.trimmingCharacters(in: .whitespaces) else { return nil }
+    let tokens = ranges.split(separator: " ")
+    guard tokens.count >= 2 else { return nil }
+    func start(_ tok: Substring) -> Int? {
+        let body = tok.dropFirst()              // drop leading - / +
+        let num = body.split(separator: ",").first.map(String.init) ?? String(body)
+        return Int(num)
+    }
+    guard let o = start(tokens[0]), let n = start(tokens[1]) else { return nil }
+    return (o, n)
 }

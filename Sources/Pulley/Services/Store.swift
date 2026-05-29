@@ -14,6 +14,16 @@ final class Store: ObservableObject {
     // v2: added PR.mergeableState — v1 cached blobs fail to decode and are dropped.
     private let cacheKey         = "store.prs.cache.v2"
     private let inboxCacheKey    = "store.inbox.cache.v1"
+    private let readThreadsKey   = "store.inbox.read.v1"
+
+    /// Threads the user marked read, keyed by thread id with the `updatedAt`
+    /// they had at read time. GitHub's `/notifications` feed is cached and
+    /// eventually-consistent (and a PAT without `notifications` scope can't
+    /// mark-read at all), so a thread we just read keeps coming back on the
+    /// next fetch. We suppress any fetched thread that's in here UNLESS it has
+    /// newer activity (`updatedAt` advanced past what we read) — that way a
+    /// thread that gets a new comment correctly resurfaces.
+    private var readThreads: [String: Date] = [:]
 
     /// Recent optimistic draft toggles. Keyed by PR id; value is the new
     /// `isDraft` and when we applied it. `/search/issues` (and even the
@@ -39,6 +49,10 @@ final class Store: ObservableObject {
            let cached = try? JSONDecoder().decode([InboxThread].self, from: data) {
             self.notifications = cached
         }
+        if let data = UserDefaults.standard.data(forKey: readThreadsKey),
+           let cached = try? JSONDecoder().decode([String: Date].self, from: data) {
+            self.readThreads = cached
+        }
     }
 
     private func saveCache() {
@@ -48,6 +62,30 @@ final class Store: ObservableObject {
         if let data = try? JSONEncoder().encode(notifications) {
             UserDefaults.standard.set(data, forKey: inboxCacheKey)
         }
+        if let data = try? JSONEncoder().encode(readThreads) {
+            UserDefaults.standard.set(data, forKey: readThreadsKey)
+        }
+    }
+
+    /// Drop threads the user already read, keeping any whose activity is newer
+    /// than when they read it. Also prunes read-markers older than 30 days so
+    /// the map doesn't grow without bound.
+    private func filterReadThreads(_ inbox: [InboxThread]) -> [InboxThread] {
+        var kept: [InboxThread] = []
+        for thread in inbox {
+            if let readAt = readThreads[thread.id] {
+                if thread.updatedAt > readAt {
+                    readThreads[thread.id] = nil   // new activity — surface again
+                    kept.append(thread)
+                }
+                // otherwise: already read, suppress
+            } else {
+                kept.append(thread)
+            }
+        }
+        let cutoff = Date().addingTimeInterval(-30 * 86_400)
+        readThreads = readThreads.filter { $0.value > cutoff }
+        return kept
     }
 
     deinit {
@@ -98,7 +136,7 @@ final class Store: ObservableObject {
                 async let prsTask    = client.fetchPRs(scope: scope)
                 async let inboxTask  = client.fetchNotifications()
                 let fetched = try await prsTask
-                let inbox   = (try? await inboxTask) ?? self.notifications
+                let inbox   = (try? await inboxTask).map(self.filterReadThreads) ?? self.notifications
                 let merged  = self.applyDraftOverrides(to: fetched)
                 self.prs = merged
                 self.notifications = inbox
@@ -124,15 +162,17 @@ final class Store: ObservableObject {
         }
     }
 
-    /// Optimistically drop the thread locally, then PATCH GitHub. If the API
-    /// call fails the next sync will reseed it — we don't surface the error
-    /// inline because the user already moved on.
+    /// Optimistically drop the thread locally and remember it as read (keyed by
+    /// its current `updatedAt`), so it stays gone even though GitHub's cached
+    /// `/notifications` feed keeps returning it for a while. Then PATCH GitHub
+    /// best-effort. `filterReadThreads` re-surfaces it only if it gets newer
+    /// activity later.
     func markNotificationRead(_ id: String) {
+        let readAt = notifications.first { $0.id == id }?.updatedAt ?? Date()
+        readThreads[id] = readAt
         notifications.removeAll { $0.id == id }
         saveCache()
-        let token = Config.token
-        guard !token.isEmpty else { return }
-        let client = GitHubClient(token: token, orgs: Config.orgs)
+        guard let client = Config.makeClient() else { return }
         Task.detached {
             try? await client.markNotificationRead(threadID: id)
         }
@@ -153,25 +193,7 @@ final class Store: ObservableObject {
         return fetched.map { pr in
             guard let override = draftOverrides[pr.id],
                   override.isDraft != pr.isDraft else { return pr }
-            return PR(
-                id: pr.id,
-                number: pr.number,
-                title: pr.title,
-                org: pr.org,
-                repo: pr.repo,
-                url: pr.url,
-                branch: pr.branch,
-                headSha: pr.headSha,
-                assignee: pr.assignee,
-                status: pr.status,
-                isDraft: override.isDraft,
-                updatedAt: pr.updatedAt,
-                createdAt: pr.createdAt,
-                checks: pr.checks,
-                checkStatus: pr.checkStatus,
-                mergeableState: pr.mergeableState,
-                nodeID: pr.nodeID
-            )
+            return pr.with(isDraft: override.isDraft)
         }
     }
 
@@ -184,26 +206,7 @@ final class Store: ObservableObject {
     func setLocalDraft(prID: String, isDraft: Bool) {
         draftOverrides[prID] = (isDraft, Date())
         guard let idx = prs.firstIndex(where: { $0.id == prID }) else { return }
-        let old = prs[idx]
-        prs[idx] = PR(
-            id: old.id,
-            number: old.number,
-            title: old.title,
-            org: old.org,
-            repo: old.repo,
-            url: old.url,
-            branch: old.branch,
-            headSha: old.headSha,
-            assignee: old.assignee,
-            status: old.status,
-            isDraft: isDraft,
-            updatedAt: old.updatedAt,
-            createdAt: old.createdAt,
-            checks: old.checks,
-            checkStatus: old.checkStatus,
-            mergeableState: old.mergeableState,
-            nodeID: old.nodeID
-        )
+        prs[idx] = prs[idx].with(isDraft: isDraft)
         saveCache()
     }
 

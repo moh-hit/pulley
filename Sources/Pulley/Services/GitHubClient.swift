@@ -218,6 +218,18 @@ struct GitHubClient: Sendable {
         return b.body ?? ""
     }
 
+    /// Fetch the changed-files list for a PR (`/pulls/{n}/files`). Loaded on
+    /// demand by the detail pane, like `fetchPRBody`. The endpoint caps
+    /// `per_page` at 100; large PRs paginate, but v1 takes a single page and
+    /// reports `capped == true` when it's full so the UI can note the cutoff.
+    func fetchPRFiles(org: String, repo: String, number: Int) async throws -> (files: [PRFile], capped: Bool) {
+        let files: [PRFile] = try await fetch(
+            "/repos/\(org)/\(repo)/pulls/\(number)/files?per_page=100",
+            as: [PRFile].self
+        )
+        return (files, files.count >= 100)
+    }
+
     /// POST a pull-request review. `event = .approve` accepts an empty body;
     /// `.requestChanges` / `.comment` require one (GitHub returns 422
     /// otherwise — we let that bubble up rather than client-side validating,

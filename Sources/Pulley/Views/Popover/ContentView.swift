@@ -628,25 +628,8 @@ private struct CheckStatusDot: View {
         .help("CI \(status.label) — click for detail")
     }
 
-    private var glyph: String {
-        switch status {
-        case .success: return "checkmark.circle.fill"
-        case .failure: return "xmark.octagon.fill"
-        case .pending: return "clock.fill"
-        case .neutral: return "minus.circle.fill"
-        case .none:    return "circle"
-        }
-    }
-
-    private var color: Color {
-        switch status {
-        case .success: return .green
-        case .failure: return .red
-        case .pending: return .orange
-        case .neutral: return .secondary
-        case .none:    return .secondary
-        }
-    }
+    private var glyph: String { checkGlyph(status) }
+    private var color: Color  { checkColor(status) }
 }
 
 private struct ChecksList: View {
@@ -690,7 +673,7 @@ private struct CheckRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
-                Text(stateLabel)
+                Text(check.stateLabel)
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundColor(color.opacity(0.9))
                 if check.url != nil {
@@ -713,31 +696,8 @@ private struct CheckRow: View {
         .help(check.url == nil ? check.name : "\(check.name) — open")
     }
 
-    private var glyph: String {
-        switch check.rolled {
-        case .success: return "checkmark.circle.fill"
-        case .failure: return "xmark.octagon.fill"
-        case .pending: return "clock.fill"
-        case .neutral: return "minus.circle.fill"
-        case .none:    return "circle"
-        }
-    }
-
-    private var color: Color {
-        switch check.rolled {
-        case .success: return .green
-        case .failure: return .red
-        case .pending: return .orange
-        case .neutral: return .secondary
-        case .none:    return .secondary
-        }
-    }
-
-    /// Compact label aligned with GitHub's wording.
-    private var stateLabel: String {
-        if check.status != "completed" { return check.status.replacingOccurrences(of: "_", with: " ") }
-        return check.conclusion ?? "completed"
-    }
+    private var glyph: String { checkGlyph(check.rolled) }
+    private var color: Color  { checkColor(check.rolled) }
 }
 
 // Tiny inline copy affordance — sized to sit next to the monospaced branch text.
@@ -873,24 +833,8 @@ private struct MergeableChip: View {
         .help(helpText)
     }
 
-    private var glyph: String {
-        switch state {
-        case .dirty:    return "exclamationmark.triangle.fill"
-        case .behind:   return "arrow.down.circle.fill"
-        case .blocked:  return "lock.fill"
-        case .unstable: return "exclamationmark.circle.fill"
-        default:        return "circle"
-        }
-    }
-
-    private var color: Color {
-        switch state {
-        case .dirty, .blocked: return .red
-        case .behind:          return .orange
-        case .unstable:        return .yellow
-        default:               return .secondary
-        }
-    }
+    private var glyph: String { mergeableGlyph(state) }
+    private var color: Color  { mergeableColor(state) }
 
     private var helpText: String {
         switch state {
@@ -929,30 +873,3 @@ private func statusLabel(_ s: PRStatus) -> String {
     }
 }
 
-private func statusColor(_ s: PRStatus) -> Color {
-    switch s {
-    case .changes:  return .red
-    case .approved: return .green
-    case .review:   return .orange
-    case .open:     return .blue
-    }
-}
-
-/// Stable per-repo color derived from a djb2 hash of the repo name.
-private func colorForRepo(_ repo: String) -> Color {
-    var h: UInt64 = 5381
-    for byte in repo.utf8 { h = (h &* 33) &+ UInt64(byte) }
-    let hue = Double(h % 360) / 360.0
-    return Color(hue: hue, saturation: 0.55, brightness: 0.85)
-}
-
-private func relativeTime(_ date: Date) -> String {
-    let s = Int(Date().timeIntervalSince(date))
-    if s < 60      { return "now" }
-    if s < 3600    { return "\(s / 60)m" }
-    if s < 86400   { return "\(s / 3600)h" }
-    let d = s / 86400
-    if d < 30      { return "\(d)d" }
-    if d < 365     { return "\(d / 30)mo" }
-    return "\(d / 365)y"
-}
