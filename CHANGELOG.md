@@ -8,6 +8,42 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-29
+
+### Added
+- **Files changed tab + inline diff viewer**: the detail pane is now
+  split into **Summary** and **Files** tabs (prominent underlined tab
+  bar). The Files tab is a master-detail view — a collapsible file
+  **tree** on the left (directories sorted first with aggregated
+  +/− totals, single-child directory chains compressed, and `A`/`M`/`D`/
+  `R`/`C` status badges) and the selected file's **unified diff** on the
+  right. Diffs render with full-width add/remove line tinting and old/new
+  line-number gutters, parsed from `GET /pulls/{n}/files` (loaded on
+  demand, single page of up to 100 files). The first file opens
+  automatically; the diff view claims the full window (PR list hidden)
+  for room.
+- **PR diffstat in the Summary**: total file count and `+additions` /
+  `−deletions` for the whole PR, rolled up from the per-file counts.
+
+### Changed
+- **Detail pane redesign**: a persistent PR header (title, metadata,
+  actions) sits above the tabs. The draft / ready-for-review toggle moved
+  up beside the title with clearer checkmark (mark ready) / pencil
+  (convert to draft) icons. The review composer is collapsed behind an
+  "Add a review" CTA so the description leads.
+- The main window now opens at full screen width by default.
+- Source reorganized into `App` / `Models` / `Services` / `Views`
+  folders (no behavior change).
+
+### Fixed
+- **Inbox mark-as-read now persists.** Read threads are tracked locally
+  (keyed by their `updatedAt`) and filtered out of GitHub's cached,
+  eventually-consistent `/notifications` feed, so a thread you read no
+  longer reappears on the next sync — even when the `PATCH` is delayed or
+  the token lacks the `notifications` scope. A thread that gets genuinely
+  newer activity still resurfaces; stale read-markers are pruned after 30
+  days.
+
 ## [1.4.0] - 2026-05-29
 
 ### Added
@@ -143,7 +179,8 @@ to settings shape or filesystem layout.
 - Tag-push release pipeline (`.github/workflows/release.yml`) that
   builds an ad-hoc-signed DMG.
 
-[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/moh-hit/pulley/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/moh-hit/pulley/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/moh-hit/pulley/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/moh-hit/pulley/compare/v1.2.0...v1.3.0

@@ -125,6 +125,16 @@ enum Config {
         }
     }
 
+    /// Build a `GitHubClient` from the saved credentials, or `nil` if no token
+    /// is stored. **Reads the Keychain** (so it may trigger the access prompt)
+    /// — call only when about to hit the API. Collapses the token-fetch +
+    /// empty-guard + construct dance that every API call site otherwise repeats.
+    static func makeClient() -> GitHubClient? {
+        let token = self.token
+        guard !token.isEmpty else { return nil }
+        return GitHubClient(token: token, orgs: orgs)
+    }
+
     static var launchAtLogin: Bool {
         get {
             if #available(macOS 13.0, *) {
