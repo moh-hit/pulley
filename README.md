@@ -41,6 +41,14 @@
 
 ## Install
 
+### Homebrew (recommended)
+
+```sh
+brew install moh-hit/tap/pulley
+```
+
+Pulley will be kept up to date with `brew upgrade`.
+
 ### Download
 
 Grab the latest `Pulley-<version>.dmg` from the [Releases page][releases],
