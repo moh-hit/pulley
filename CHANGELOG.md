@@ -8,6 +8,25 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-29
+
+### Added
+- **Inline review comment drafts** in the Files tab: click a diff line to open
+  a local draft editor, edit or discard drafts inline, and submit them with the
+  existing Approve / Request changes / Comment review actions. Draft comments
+  attach to GitHub using the PR head SHA plus modern `line` / `side` locations.
+- **Multi-line range comments**: drag across the diff to select a span of lines
+  and comment on the whole range (shift-click to extend a range also works). The
+  selection highlights live as you drag and commits to a single ranged draft.
+- **Existing comments shown inline**: already-posted review comments are fetched
+  (`GET /pulls/{n}/comments`, paginated) and rendered read-only beneath their
+  diff line — author avatar, relative time, and Markdown body — so prior
+  discussion sits alongside your drafts, with replies indented under their
+  parent. Comments you submit appear immediately and reconcile with GitHub's
+  feed a moment later, covering its brief read-after-write lag.
+- Diff review interactions tint the hovered line and highlight the active draft
+  line/range.
+
 ## [1.5.0] - 2026-05-29
 
 ### Added
@@ -179,7 +198,8 @@ to settings shape or filesystem layout.
 - Tag-push release pipeline (`.github/workflows/release.yml`) that
   builds an ad-hoc-signed DMG.
 
-[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/moh-hit/pulley/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/moh-hit/pulley/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/moh-hit/pulley/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/moh-hit/pulley/compare/v1.3.0...v1.3.1
