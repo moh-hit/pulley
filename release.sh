@@ -236,6 +236,39 @@ fi
 
 rm -rf "$STAGING"
 
+# ------------------------------------------------------------------
+# Update the Homebrew tap cask with the new version + SHA256.
+# Clones moh-hit/homebrew-tap into a temp dir, patches Casks/pulley.rb,
+# commits, and pushes. Skipped if gh is unavailable or the push fails.
+# ------------------------------------------------------------------
+TAP_REPO="moh-hit/homebrew-tap"
+TAP_CASK="Casks/pulley.rb"
+
+if command -v gh &>/dev/null; then
+    echo "→ Computing SHA256 for Homebrew cask"
+    DMG_SHA256="$(shasum -a 256 "$DMG_FINAL" | awk '{print $1}')"
+
+    TAP_DIR="$(mktemp -d)"
+    trap 'rm -rf "$TAP_DIR"' EXIT
+
+    echo "→ Updating Homebrew tap ($TAP_REPO)"
+    gh repo clone "$TAP_REPO" "$TAP_DIR" -- -q
+
+    sed -i '' \
+        -e "s/version \".*\"/version \"$VERSION\"/" \
+        -e "s/sha256 \".*\"/sha256 \"$DMG_SHA256\"/" \
+        "$TAP_DIR/$TAP_CASK"
+
+    git -C "$TAP_DIR" add "$TAP_CASK"
+    git -C "$TAP_DIR" commit -m "chore: bump Pulley to $VERSION" -q
+    git -C "$TAP_DIR" push -q
+
+    echo "→ Homebrew tap updated (sha256: $DMG_SHA256)"
+else
+    echo "WARNING: gh not found — skipping Homebrew tap update." >&2
+    echo "         Run manually: update $TAP_CASK with version $VERSION" >&2
+fi
+
 echo ""
 echo "Built:   $HERE/$BUNDLE  ($VERSION, build $BUILD_NUMBER)"
 echo "DMG:     $DMG_FINAL"
