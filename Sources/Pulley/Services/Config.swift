@@ -19,6 +19,7 @@ enum Config {
     private static let ideKey      = "ide.preferred"
     private static let baseDirKey  = "ide.baseDir"
     private static let hotkeyKey   = "ui.globalHotkey"
+    private static let mergeMethodKey = "git.mergeMethod"
 
     /// Whether a token has been saved. Read from UserDefaults — does NOT
     /// touch Keychain. Use this for any "is the app configured?" check at
@@ -98,6 +99,17 @@ enum Config {
             return .vscode
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: ideKey) }
+    }
+
+    /// Preferred merge strategy, remembered as the default in the merge
+    /// confirmation. Squash matches the most common repo convention.
+    static var mergeMethod: MergeMethod {
+        get {
+            if let raw = UserDefaults.standard.string(forKey: mergeMethodKey),
+               let m = MergeMethod(rawValue: raw) { return m }
+            return .squash
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: mergeMethodKey) }
     }
 
     static var workspaceBaseDir: String {

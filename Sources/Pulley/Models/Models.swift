@@ -1,6 +1,31 @@
 import Foundation
 import AppKit
 
+/// How a PR is merged. Maps to the `merge_method` field of
+/// `PUT /repos/{owner}/{repo}/pulls/{n}/merge`.
+enum MergeMethod: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case squash, merge, rebase
+
+    var id: String { rawValue }
+
+    /// Wording mirrors GitHub's own merge-button dropdown.
+    var label: String {
+        switch self {
+        case .squash: return "Squash and merge"
+        case .merge:  return "Create a merge commit"
+        case .rebase: return "Rebase and merge"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .squash: return "arrow.triangle.merge"
+        case .merge:  return "arrow.triangle.pull"
+        case .rebase: return "arrow.triangle.branch"
+        }
+    }
+}
+
 enum PRStatus: String, Codable, CaseIterable, Hashable {
     case open, review, changes, approved
 
@@ -275,6 +300,34 @@ struct PR: Identifiable, Hashable, Codable {
             mergeableState: mergeableState,
             nodeID: nodeID
         )
+    }
+
+    /// True when this PR can be merged right now: not a draft, GitHub reports a
+    /// `clean` mergeable state (no conflicts, required reviews satisfied, branch
+    /// protection passing), and CI isn't actively failing. `clean` already
+    /// encodes most of this, but we also gate on `checkStatus` so a red build
+    /// never gets a one-click merge.
+    var canMerge: Bool {
+        !isDraft
+            && mergeableState == .clean
+            && checkStatus != .failure
+            && checkStatus != .pending
+    }
+
+    /// Why `canMerge` is false — short reason for the disabled button's tooltip.
+    var mergeBlockedReason: String {
+        if isDraft { return "PR is a draft" }
+        switch mergeableState {
+        case .dirty:    return "Merge conflicts"
+        case .behind:   return "Branch is behind base"
+        case .blocked:  return "Blocked — required reviews or branch protection"
+        case .unstable: return "Checks not passing"
+        case .unknown:  return "Mergeability still computing — refresh"
+        default: break
+        }
+        if checkStatus == .failure { return "CI is failing" }
+        if checkStatus == .pending { return "CI still running" }
+        return "Not mergeable"
     }
 }
 

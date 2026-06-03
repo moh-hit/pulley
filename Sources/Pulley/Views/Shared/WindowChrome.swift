@@ -52,7 +52,7 @@ struct BranchPill: View {
 }
 
 struct DetailActionButton: View {
-    enum Style { case primary, secondary }
+    enum Style { case primary, secondary, merge }
 
     let title: String
     let systemImage: String
@@ -125,21 +125,25 @@ struct DetailActionButton: View {
             return hovering ? Color.accentColor.opacity(0.88) : Color.accentColor
         case .secondary:
             return hovering ? Color.primary.opacity(0.08) : Color.primary.opacity(0.03)
+        case .merge:
+            // GitHub's merge-button purple.
+            let purple = Color(red: 0.52, green: 0.30, blue: 0.86)
+            return hovering ? purple.opacity(0.88) : purple
         }
     }
 
     private var strokeColor: Color {
         switch style {
-        case .primary:   return Color.clear
-        case .secondary: return Color.primary.opacity(hovering ? 0.22 : 0.15)
+        case .primary, .merge: return Color.clear
+        case .secondary:       return Color.primary.opacity(hovering ? 0.22 : 0.15)
         }
     }
 
     private var borderWidth: CGFloat {
-        style == .primary ? 0 : 0.7
+        style == .secondary ? 0.7 : 0
     }
 
     private var textColor: Color {
-        style == .primary ? .white : .primary
+        style == .secondary ? .primary : .white
     }
 }

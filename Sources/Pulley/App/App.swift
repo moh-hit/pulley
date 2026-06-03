@@ -46,15 +46,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            // `arrow.triangle.branch` reads as the VCS branching glyph GitHub
-            // and most git UIs use for PRs. Falls through to similar shapes on
-            // older systems that don't ship the newest set.
-            let candidates = ["arrow.triangle.branch",
-                              "arrow.branch",
-                              "arrow.triangle.pull"]
-            if let sym = candidates.lazy
-                .compactMap({ NSImage(systemSymbolName: $0, accessibilityDescription: "Pulley") })
-                .first {
+            // Custom Pulley logomark (vector SVG → crisp at any backing scale),
+            // tinted by the system as a template image. Falls back to the VCS
+            // branch SF Symbol if the bundled asset is somehow missing.
+            if let url = Bundle.module.url(forResource: "MenuBarIcon", withExtension: "svg"),
+               let mark = NSImage(contentsOf: url) {
+                // Height ~ the menu-bar glyph metric; width follows the 84:96
+                // aspect ratio so it isn't squashed.
+                let h: CGFloat = 17
+                mark.size = NSSize(width: (h * 84.0 / 96.0).rounded(), height: h)
+                mark.isTemplate = true
+                button.image = mark
+            } else if let sym = NSImage(systemSymbolName: "arrow.triangle.branch",
+                                        accessibilityDescription: "Pulley") {
                 let cfg = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
                 button.image = (sym.withSymbolConfiguration(cfg) ?? sym)
                 button.image?.isTemplate = true
@@ -65,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.imageHugsTitle = true
             button.action = #selector(togglePopover(_:))
             button.target = self
+            // Left-click toggles the popover; right-click pops a quick "peek"
+            // menu of actionable PRs without taking over the screen.
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         popover = NSPopover()
@@ -288,8 +295,112 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .pulleyOpenSettings, object: nil)
     }
 
+    /// Right-click "peek": a flat menu of the current actionable PRs, each
+    /// opening in the browser on click, plus the usual app actions. Lets you
+    /// glance and jump without the full popover/window.
+    private func showPeekMenu(from button: NSStatusBarButton) {
+        let menu = NSMenu()
+
+        // Needs-attention first, then most-recently-updated.
+        let prs = store.prs.sorted { a, b in
+            let aHot = a.status == .changes || a.checkStatus == .failure
+            let bHot = b.status == .changes || b.checkStatus == .failure
+            if aHot != bHot { return aHot }
+            return a.updatedAt > b.updatedAt
+        }
+
+        let header = NSMenuItem(title: peekHeader(count: prs.count), action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        menu.addItem(.separator())
+
+        if prs.isEmpty {
+            let empty = NSMenuItem(title: "No open pull requests", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        } else {
+            // Cap the list so a busy queue doesn't produce an unwieldy menu.
+            let shown = prs.prefix(15)
+            for pr in shown {
+                let title = "\(pr.repo)#\(pr.number)  \(pr.title)"
+                let item = NSMenuItem(title: title,
+                                      action: #selector(openPeekPR(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                item.representedObject = pr.url
+                item.image = peekGlyph(for: pr)
+                item.toolTip = "\(pr.org)/\(pr.repo) — \(pr.status.label), CI \(pr.checkStatus.label)"
+                menu.addItem(item)
+            }
+            if prs.count > shown.count {
+                let more = NSMenuItem(title: "…and \(prs.count - shown.count) more — open Pulley",
+                                      action: #selector(openMainWindowFromMenu),
+                                      keyEquivalent: "")
+                more.target = self
+                menu.addItem(more)
+            }
+        }
+
+        menu.addItem(.separator())
+        let open = NSMenuItem(title: "Open Pulley", action: #selector(openMainWindowFromMenu), keyEquivalent: "")
+        open.target = self
+        menu.addItem(open)
+        let refresh = NSMenuItem(title: "Refresh", action: #selector(syncFromMenu), keyEquivalent: "")
+        refresh.target = self
+        refresh.isEnabled = !store.syncing
+        menu.addItem(refresh)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettingsFromMenu), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit Pulley", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
+        menu.popUp(positioning: nil,
+                   at: NSPoint(x: 0, y: button.bounds.height + 4),
+                   in: button)
+    }
+
+    private func peekHeader(count: Int) -> String {
+        switch (count, store.needsAttention) {
+        case (0, _):    return "Pulley — no open PRs"
+        case (1, true): return "Pulley — 1 PR · needs attention"
+        case (1, _):    return "Pulley — 1 open PR"
+        case (_, true): return "Pulley — \(count) PRs · needs attention"
+        default:        return "Pulley — \(count) open PRs"
+        }
+    }
+
+    private func peekGlyph(for pr: PR) -> NSImage? {
+        let (name, color): (String, NSColor)
+        if pr.checkStatus == .failure {
+            (name, color) = ("xmark.octagon.fill", .systemRed)
+        } else {
+            switch pr.status {
+            case .changes:  (name, color) = ("exclamationmark.triangle.fill", .systemRed)
+            case .approved: (name, color) = ("checkmark.seal.fill", .systemGreen)
+            case .review:   (name, color) = ("eye.fill", .systemOrange)
+            case .open:     (name, color) = ("circle.dashed", .secondaryLabelColor)
+            }
+        }
+        let cfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+            .applying(.init(paletteColors: [color]))
+        return NSImage(systemSymbolName: name, accessibilityDescription: pr.status.label)?
+            .withSymbolConfiguration(cfg)
+    }
+
+    @objc private func openPeekPR(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        PRActions.openInBrowser(url)
+    }
+
     @objc func togglePopover(_ sender: Any?) {
         guard let button = statusItem.button else { return }
+        // Right-click → peek menu instead of the popover.
+        if let event = NSApp.currentEvent,
+           event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            showPeekMenu(from: button)
+            return
+        }
         if popover.isShown {
             closePopover()
             return
