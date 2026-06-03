@@ -97,23 +97,3 @@ jobs:
           fail_on_unmatched_files: true
           body_path: .release-notes.md
           generate_release_notes: true
-
-      - name: Update Homebrew tap
-        env:
-          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.ver.outputs.version }}"
-          DMG="dist/Pulley-${VERSION}.dmg"
-          SHA256="$(shasum -a 256 "$DMG" | awk '{print $1}')"
-
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/moh-hit/homebrew-tap.git" /tmp/tap
-          sed -i '' \
-              -e "s/version \".*\"/version \"${VERSION}\"/" \
-              -e "s/sha256 \".*\"/sha256 \"${SHA256}\"/" \
-              /tmp/tap/Casks/pulley.rb
-          git -C /tmp/tap config user.email "moh.hit1012@gmail.com"
-          git -C /tmp/tap config user.name "moh-hit"
-          git -C /tmp/tap add Casks/pulley.rb
-          git -C /tmp/tap commit -m "chore: bump Pulley to ${VERSION}"
-          git -C /tmp/tap push
