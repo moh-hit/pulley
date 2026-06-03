@@ -71,6 +71,7 @@ jobs:
       - name: Build, sign, notarize, staple DMG
         env:
           PULLEY_NOTARY_PROFILE: pulley-notary
+          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: ./release.sh "${{ steps.ver.outputs.version }}"
 
       - name: Extract release notes from CHANGELOG.md
