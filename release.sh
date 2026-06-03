@@ -244,7 +244,7 @@ rm -rf "$STAGING"
 TAP_REPO="moh-hit/homebrew-tap"
 TAP_CASK="Casks/pulley.rb"
 
-if command -v gh &>/dev/null; then
+if command -v gh &>/dev/null && gh auth status &>/dev/null; then
     echo "→ Computing SHA256 for Homebrew cask"
     DMG_SHA256="$(shasum -a 256 "$DMG_FINAL" | awk '{print $1}')"
 
@@ -252,20 +252,25 @@ if command -v gh &>/dev/null; then
     trap 'rm -rf "$TAP_DIR"' EXIT
 
     echo "→ Updating Homebrew tap ($TAP_REPO)"
-    gh repo clone "$TAP_REPO" "$TAP_DIR" -- -q
-
-    sed -i '' \
-        -e "s/version \".*\"/version \"$VERSION\"/" \
-        -e "s/sha256 \".*\"/sha256 \"$DMG_SHA256\"/" \
-        "$TAP_DIR/$TAP_CASK"
-
-    git -C "$TAP_DIR" add "$TAP_CASK"
-    git -C "$TAP_DIR" commit -m "chore: bump Pulley to $VERSION" -q
-    git -C "$TAP_DIR" push -q
-
-    echo "→ Homebrew tap updated (sha256: $DMG_SHA256)"
+    # Tap update is best-effort: a missing token, stale cask layout, or
+    # transient git/gh failure must not abort an already-notarized release.
+    if ! ( set -e
+        gh repo clone "$TAP_REPO" "$TAP_DIR" -- -q
+        sed -i '' \
+            -e "s/version \".*\"/version \"$VERSION\"/" \
+            -e "s/sha256 \".*\"/sha256 \"$DMG_SHA256\"/" \
+            "$TAP_DIR/$TAP_CASK"
+        git -C "$TAP_DIR" add "$TAP_CASK"
+        git -C "$TAP_DIR" commit -m "chore: bump Pulley to $VERSION" -q
+        git -C "$TAP_DIR" push -q
+    ); then
+        echo "WARNING: Homebrew tap update failed — release is still complete." >&2
+        echo "         Run manually: update $TAP_CASK with version $VERSION (sha256: $DMG_SHA256)" >&2
+    else
+        echo "→ Homebrew tap updated (sha256: $DMG_SHA256)"
+    fi
 else
-    echo "WARNING: gh not found — skipping Homebrew tap update." >&2
+    echo "WARNING: gh unavailable or unauthenticated — skipping Homebrew tap update." >&2
     echo "         Run manually: update $TAP_CASK with version $VERSION" >&2
 fi
 
