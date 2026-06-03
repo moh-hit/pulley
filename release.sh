@@ -135,7 +135,7 @@ CALIB_SIZE_KB=$(( STAGING_KB + 20480 ))   # + ~20 MB headroom for Finder metadat
 
 hdiutil create \
     -size "${CALIB_SIZE_KB}k" \
-    -fs HFS+ \
+    -fs APFS \
     -volname "$VOL_NAME" \
     -srcfolder "$STAGING" \
     -format UDRW \
@@ -205,7 +205,7 @@ sleep 1
 echo "→ Building final DMG"
 rm -f "$DMG_FINAL"
 hdiutil create \
-    -fs HFS+ \
+    -fs APFS \
     -volname "$VOL_NAME" \
     -srcfolder "$STAGING" \
     -format UDZO \

@@ -8,6 +8,15 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-06-03
+
+### Fixed
+- Drag-and-drop install from the DMG silently bouncing back on macOS
+  Tahoe. The installer image was built with `-fs HFS+`, and Finder on
+  recent macOS rejects drags from an HFS+ DMG onto an APFS
+  `/Applications` without surfacing an error. Switched both the
+  calibration and final `hdiutil create` calls to `-fs APFS`.
+
 ## [1.6.0] - 2026-05-29
 
 ### Added
