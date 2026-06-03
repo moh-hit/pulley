@@ -50,8 +50,9 @@ struct PRDetailPane: View {
     @State private var actionError: String? = nil
     /// Review composer is collapsed behind a CTA so the description leads.
     @State private var showReview: Bool = false
+    @State private var showMergeConfirm: Bool = false
 
-    private enum InflightAction: Equatable { case draft, review }
+    private enum InflightAction: Equatable { case draft, review, merge }
 
     enum DetailTab: Hashable { case summary, files }
 
@@ -479,6 +480,7 @@ struct PRDetailPane: View {
     }
 
     private var actionRow: some View {
+      VStack(alignment: .leading, spacing: 6) {
         HStack(spacing: 8) {
             DetailActionButton(
                 title: "Open in \(Config.preferredIDE.displayName)",
@@ -491,6 +493,8 @@ struct PRDetailPane: View {
                 }
             }
             .help("Create a worktree and open in \(Config.preferredIDE.displayName)")
+
+            mergeButton
 
             DetailActionButton(
                 title: "Open on GitHub",
@@ -514,6 +518,57 @@ struct PRDetailPane: View {
 
             Spacer()
         }
+        // Merge errors surface here since the merge button lives in this row
+        // and the review section (which has its own error line) may be closed.
+        if inflightAction == nil, let err = actionError, !showReview {
+            Text(err)
+                .font(.system(size: 12))
+                .foregroundColor(.red)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+
+    /// "Merge" button — enabled only when GitHub reports the PR is cleanly
+    /// mergeable. Tapping opens a confirmation offering the three merge
+    /// strategies (defaulting to the remembered preference), so a merge is
+    /// always one explicit, deliberate choice rather than a stray click.
+    @ViewBuilder
+    private var mergeButton: some View {
+      // Only surface merge once the PR is actually mergeable — no point
+      // showing it for open / in-review PRs that can't be merged yet.
+      if pr.canMerge {
+        DetailActionButton(
+            title: "Merge",
+            systemImage: inflightAction == .merge
+                ? "hourglass"
+                : "arrow.triangle.merge",
+            style: .merge
+        ) {
+            showMergeConfirm = true
+        }
+        .disabled(inflightAction != nil)
+        .help("Merge this PR (\(Config.mergeMethod.label))")
+        .confirmationDialog(
+            "Merge \(pr.repo)#\(pr.number)?",
+            isPresented: $showMergeConfirm,
+            titleVisibility: .visible
+        ) {
+            // Remembered preference first, then the rest.
+            let ordered = [Config.mergeMethod]
+                + MergeMethod.allCases.filter { $0 != Config.mergeMethod }
+            ForEach(ordered) { method in
+                Button(method.label) {
+                    Config.mergeMethod = method
+                    merge(method: method)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(pr.title)
+        }
+      }
     }
 
     private var reviewSection: some View {
@@ -701,6 +756,37 @@ struct PRDetailPane: View {
                     // seconds.
                     self.store.setLocalDraft(prID: prID, isDraft: targetDraft)
                     self.inflightAction = nil
+                    self.store.sync()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionError = error.localizedDescription
+                    self.inflightAction = nil
+                }
+            }
+        }
+    }
+
+    private func merge(method: MergeMethod) {
+        guard let client = Config.makeClient() else {
+            actionError = "Token not configured."
+            return
+        }
+        inflightAction = .merge
+        actionError = nil
+        let org = pr.org, repo = pr.repo, number = pr.number
+        let sha = pr.headSha
+        Task {
+            do {
+                try await client.mergePullRequest(
+                    org: org, repo: repo, number: number,
+                    method: method, sha: sha
+                )
+                await MainActor.run {
+                    self.inflightAction = nil
+                    // Re-sync so the merged PR drops out of the list and the
+                    // badge updates. The detail pane's selection clears when
+                    // its PR disappears from the store.
                     self.store.sync()
                 }
             } catch {

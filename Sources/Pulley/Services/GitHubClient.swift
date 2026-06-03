@@ -326,6 +326,38 @@ struct GitHubClient: Sendable {
         try await graphql(query: mutation, variables: ["id": nodeID])
     }
 
+    /// Merge a PR via `PUT /repos/{owner}/{repo}/pulls/{n}/merge`. `sha` pins
+    /// the merge to the head commit we last saw, so a push that lands between
+    /// fetch and merge is rejected (409) instead of silently merging newer
+    /// code. GitHub returns 405 when the PR isn't mergeable and 409 on the SHA
+    /// mismatch — both surfaced with a readable message.
+    func mergePullRequest(
+        org: String, repo: String, number: Int,
+        method: MergeMethod, sha: String?
+    ) async throws {
+        var req = request("/repos/\(org)/\(repo)/pulls/\(number)/merge")
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload: [String: Any] = ["merge_method": method.rawValue]
+        if let sha, !sha.isEmpty { payload["sha"] = sha }
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw GitHubError(message: "No HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            // GitHub's body carries a useful `message` (e.g. "Pull Request is
+            // not mergeable") — prefer it over the bare status code.
+            struct Msg: Decodable { let message: String? }
+            let detail = (try? JSONDecoder().decode(Msg.self, from: data))?.message
+            switch http.statusCode {
+            case 405: throw GitHubError(message: detail ?? "405 — PR is not mergeable")
+            case 409: throw GitHubError(message: detail ?? "409 — head moved since last sync; refresh and retry")
+            default:  throw GitHubError(message: detail ?? "Merge failed (HTTP \(http.statusCode))")
+            }
+        }
+    }
+
     /// Minimal GraphQL POST. GitHub returns 200 even on field-level errors,
     /// so we parse the `errors` array and throw if present.
     private func graphql(query: String, variables: [String: Any]) async throws {

@@ -8,6 +8,24 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+### Added
+- **Merge from Pulley.** The PR detail pane now shows a purple **Merge**
+  button once GitHub reports the PR is cleanly mergeable (not a draft,
+  `clean` mergeable state, CI not failing or pending). Clicking opens a
+  confirmation offering Squash / Merge commit / Rebase — defaulting to your
+  last-used method — so a merge is always one deliberate choice. The merge
+  is pinned to the PR head SHA, so a push landing between sync and merge is
+  rejected rather than silently merging newer code.
+- **Right-click "peek" menu** on the menu-bar icon: a quick list of your
+  actionable PRs (needs-attention first), each opening in the browser on
+  click, plus Open Pulley / Refresh / Settings / Quit — without opening the
+  full popover. Left-click still toggles the popover.
+
+### Changed
+- New Pulley logomark for both the app icon and the menu-bar icon. The
+  menu-bar glyph ships as a vector template so it stays crisp at any backing
+  scale and tints correctly in light and dark.
+
 ## [1.6.1] - 2026-06-03
 
 ### Fixed
