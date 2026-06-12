@@ -191,6 +191,11 @@ struct CheckRun: Codable, Hashable, Identifiable {
     /// raw GitHub `conclusion` for completed runs (success | failure | …)
     let conclusion: String?
     let url: URL?
+    /// Numeric check-run id (`databaseId`), used by the REST detail /
+    /// annotations / re-run endpoints. Nil for legacy commit statuses, which
+    /// have none of those, and for cached blobs from before this field
+    /// existed — next sync fills it in.
+    let runID: Int?
 
     /// Roll one check's raw fields into our coarser CheckStatus.
     var rolled: CheckStatus {
@@ -211,6 +216,38 @@ struct CheckRun: Codable, Hashable, Identifiable {
             return status.replacingOccurrences(of: "_", with: " ")
         }
         return conclusion ?? "completed"
+    }
+}
+
+/// One annotation a check attached to the head commit — a file/line plus the
+/// failure or warning message (`GET /check-runs/{id}/annotations`).
+struct CheckAnnotation: Hashable, Identifiable, Sendable {
+    let id: Int                 // position in the fetched list; unique per run
+    let path: String
+    let startLine: Int?
+    let endLine: Int?
+    /// notice | warning | failure
+    let level: String
+    let message: String
+    let title: String?
+
+    var locationLabel: String {
+        guard let startLine else { return path }
+        if let endLine, endLine != startLine { return "\(path):\(startLine)-\(endLine)" }
+        return "\(path):\(startLine)"
+    }
+}
+
+/// On-demand detail for one check run: the tool's own output (title +
+/// markdown summary) and its annotations. Fetched when a failed check is
+/// expanded in the detail pane — never on the list sync.
+struct CheckRunDetails: Hashable, Sendable {
+    let outputTitle: String?
+    let summary: String?
+    let annotations: [CheckAnnotation]
+
+    var isEmpty: Bool {
+        (summary?.isEmpty ?? true) && annotations.isEmpty
     }
 }
 

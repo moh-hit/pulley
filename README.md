@@ -71,14 +71,14 @@ Open the popover → gear → **Settings**.
 
 | Field | Notes |
 | --- | --- |
-| Personal access token | GitHub **classic** PAT with `repo` and `read:org` scopes. Stored in Keychain. |
+| Personal access token | Classic PAT (`repo` + `read:org`) or a fine-grained token. Stored in Keychain. |
 | Organizations | One or more GitHub orgs. |
 | Default scope | authored / involves / review-requested / assigned. |
 | Preferred IDE | VS Code, Cursor, or Zed. |
 | Workspace base dir | Where Pulley looks for clones — tries `<base>/<repo>` then `<base>/<org>/<repo>`. |
 | Launch at login | Toggled via `SMAppService`. |
 
-> Fine-grained tokens won't work — the cross-org PR query relies on the classic-token `/search/issues` endpoint.
+> Fine-grained tokens: grant access to the orgs' repositories with **Pull requests: Read and write**, **Contents: Read and write** (merging), **Checks: Read** (CI details), and **Actions: Read and write** (re-running failed checks). The inbox still needs a classic PAT — GitHub's notifications API has no fine-grained permission — and is skipped gracefully otherwise.
 
 ## Contributing
 

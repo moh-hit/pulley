@@ -9,6 +9,17 @@ to settings shape or filesystem layout.
 ## [Unreleased]
 
 ### Added
+- **CI failure details inline.** Failed checks in the detail pane's Checks
+  section now expand in place to show the check's own output — title,
+  markdown summary, and per-file annotations (`path:line` + message) — so
+  diagnosing a red build no longer means a trip to the browser. A
+  **Re-run failed checks** button re-runs only what failed: GitHub Actions
+  checks per workflow run via `rerun-failed-jobs` (same as the web UI),
+  anything else via the generic check-run re-request.
+- **Fine-grained token support.** The PR sync moved off the classic-only
+  `/search/issues` REST endpoint to a GraphQL search, so fine-grained PATs
+  now work (see README for the permissions to grant). The inbox still
+  requires a classic token and is skipped gracefully without one.
 - **Merge from Pulley.** The PR detail pane now shows a purple **Merge**
   button once GitHub reports the PR is cleanly mergeable (not a draft,
   `clean` mergeable state, CI not failing or pending). Clicking opens a
@@ -22,6 +33,11 @@ to settings shape or filesystem layout.
   full popover. Left-click still toggles the popover.
 
 ### Changed
+- Each sync now costs four GraphQL searches per org instead of four REST
+  searches **plus two REST calls per PR** (detail + check runs) — noticeably
+  faster on busy scopes, and far gentler on the rate limit. CI status now
+  also includes legacy commit statuses (e.g. external CI reporting via the
+  status API), which the old check-runs-only fetch missed.
 - New Pulley logomark for both the app icon and the menu-bar icon. The
   menu-bar glyph ships as a vector template so it stays crisp at any backing
   scale and tints correctly in light and dark.
