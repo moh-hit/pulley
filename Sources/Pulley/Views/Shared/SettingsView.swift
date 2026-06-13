@@ -12,10 +12,19 @@ struct SettingsView: View {
     @State private var token: String = ""
     @State private var tokenCleared: Bool = false
     @State private var showTokenHelp: Bool = false
+    @State private var tokenHelpKind: TokenHelpKind = .classic
 
     /// One animation for the token-guide reveal so the ⓘ toggle and the card's
     /// own close button stay in lockstep.
     private static let tokenHelpAnim: Animation = .spring(response: 0.34, dampingFraction: 0.9)
+
+    /// Which token type the guide is showing. The card displays one at a time
+    /// (segmented switch) so the panel stays short.
+    enum TokenHelpKind: String, CaseIterable, Identifiable {
+        case classic = "Classic"
+        case fineGrained = "Fine-grained"
+        var id: String { rawValue }
+    }
     @State private var orgs: [String] = {
         let saved = Config.orgs
         return saved.isEmpty ? [""] : saved
@@ -337,73 +346,44 @@ struct SettingsView: View {
     }
 
     private var tokenHelpCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 6) {
-                Image(systemName: "key.horizontal.fill")
-                    .font(.system(size: 11))
-                    .foregroundColor(.accentColor)
-                Text("Create a token")
-                    .font(.system(size: 11, weight: .semibold))
-                Spacer()
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Picker("", selection: $tokenHelpKind) {
+                    ForEach(TokenHelpKind.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .fixedSize()
+
+                Spacer(minLength: 8)
+
                 Button {
                     withAnimation(Self.tokenHelpAnim) { showTokenHelp = false }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(.secondary)
+                        .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.plain)
                 .help("Hide guide")
             }
 
-            Text("Pick either type, click to open GitHub, generate the token, then paste it above and hit Save.")
-                .font(.system(size: 10.5))
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            tokenOption(
-                title: "Classic token",
-                badge: "recommended",
-                summary: "Works for everything, including the Inbox. Scopes to check:",
-                rows: [
-                    ("repo", "PRs, reviews, merge, checks"),
-                    ("read:org", "list PRs across your orgs"),
-                    ("notifications", "Inbox tab (optional)"),
-                ],
-                mono: true,
-                buttonTitle: "Create classic token",
-                url: classicTokenURL,
-                note: "The link pre-checks these scopes for you — set No expiration (or your policy) and Generate."
-            )
-
-            tokenOption(
-                title: "Fine-grained token",
-                badge: nil,
-                summary: "Tighter, per-repo access — but the Inbox isn't available (GitHub has no notifications permission for these). Permissions to set:",
-                rows: [
-                    ("Pull requests", "Read and write"),
-                    ("Contents", "Read and write"),
-                    ("Checks", "Read and write"),
-                    ("Actions", "Read and write"),
-                    ("Commit statuses", "Read-only"),
-                ],
-                mono: false,
-                buttonTitle: "Create fine-grained token",
-                url: fineGrainedTokenURL,
-                note: "Under Repository access, pick the repos in the orgs above. Metadata: Read is added automatically."
-            )
-
-            HStack(spacing: 5) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-                Text("Pulley keeps the token in your macOS Keychain — never on disk, and sent only to GitHub.")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Group {
+                switch tokenHelpKind {
+                case .classic:     classicHelp
+                case .fineGrained: fineGrainedHelp
+                }
             }
+            .animation(.easeInOut(duration: 0.16), value: tokenHelpKind)
+
+            Text("Then paste it above and Save — stored only in your macOS Keychain.")
+                .font(.system(size: 9.5))
+                .foregroundColor(.secondary.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(13)
+        .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8)
@@ -411,84 +391,73 @@ struct SettingsView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.accentColor.opacity(0.22), lineWidth: 0.5)
+                .stroke(Color.accentColor.opacity(0.2), lineWidth: 0.5)
         )
         .padding(.top, 4)
     }
 
-    @ViewBuilder
-    private func tokenOption(
-        title: String,
-        badge: String?,
-        summary: String,
-        rows: [(String, String)],
-        mono: Bool,
-        buttonTitle: String,
-        url: URL,
-        note: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                if let badge {
-                    Text(badge.uppercased())
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
-                        .tracking(0.4)
-                        .foregroundColor(.accentColor)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1.5)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-                }
-                Spacer()
-            }
-
-            Text(summary)
+    private var classicHelp: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Full access, including the Inbox. Scopes to tick:")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(rows, id: \.0) { row in
-                    HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Text(row.0)
-                            .font(.system(size: 9.5, weight: .semibold, design: mono ? .monospaced : .default))
-                            .foregroundColor(.primary.opacity(0.85))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.primary.opacity(0.07)))
-                        Text(row.1)
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                        Spacer(minLength: 0)
-                    }
-                }
+            HStack(spacing: 5) {
+                scopeChip("repo")
+                scopeChip("read:org")
+                scopeChip("notifications")
             }
-
-            Button {
-                PRActions.openInBrowser(url)
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.forward.square")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(buttonTitle)
-                        .font(.system(size: 10.5, weight: .medium))
-                }
-            }
-            .controlSize(.small)
-            .help("Opens \(url.host ?? "GitHub") in your browser")
-
-            Text(note)
+            createTokenButton("Open GitHub — scopes pre-filled", url: classicTokenURL)
+            Text("`notifications` is optional — it powers the Inbox tab.")
                 .font(.system(size: 9.5))
                 .foregroundColor(.secondary.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(NSColor.textBackgroundColor).opacity(0.5))
-        )
+    }
+
+    private var fineGrainedHelp: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Per-repo access; no Inbox. Set these permissions:")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("**Read & write** — Pull requests, Contents, Checks, Actions")
+                Text("**Read** — Commit statuses")
+            }
+            .font(.system(size: 10))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            createTokenButton("Open GitHub", url: fineGrainedTokenURL)
+            Text("Under Repository access, pick the repos in your orgs. Metadata: Read is automatic.")
+                .font(.system(size: 9.5))
+                .foregroundColor(.secondary.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func scopeChip(_ s: String) -> some View {
+        Text(s)
+            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+            .foregroundColor(.primary.opacity(0.85))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(0.08)))
+    }
+
+    private func createTokenButton(_ title: String, url: URL) -> some View {
+        Button {
+            PRActions.openInBrowser(url)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up.forward.square")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 10.5, weight: .medium))
+            }
+        }
+        .controlSize(.small)
+        .help("Opens \(url.host ?? "GitHub") in your browser")
     }
 
     // MARK: - Directory picker
