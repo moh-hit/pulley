@@ -12,6 +12,10 @@ struct SettingsView: View {
     @State private var token: String = ""
     @State private var tokenCleared: Bool = false
     @State private var showTokenHelp: Bool = false
+
+    /// One animation for the token-guide reveal so the ⓘ toggle and the card's
+    /// own close button stay in lockstep.
+    private static let tokenHelpAnim: Animation = .spring(response: 0.34, dampingFraction: 0.9)
     @State private var orgs: [String] = {
         let saved = Config.orgs
         return saved.isEmpty ? [""] : saved
@@ -51,7 +55,7 @@ struct SettingsView: View {
                             label: "Personal access token",
                             required: true,
                             infoAction: {
-                                withAnimation(.easeOut(duration: 0.16)) { showTokenHelp.toggle() }
+                                withAnimation(Self.tokenHelpAnim) { showTokenHelp.toggle() }
                             },
                             infoActive: showTokenHelp
                         ) {
@@ -88,7 +92,14 @@ struct SettingsView: View {
                             )
                             if showTokenHelp {
                                 tokenHelpCard
-                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                    // Expand in place (scale from the top edge +
+                                    // fade) rather than sliding down from above —
+                                    // a move transition overlaps the caption above
+                                    // it mid-animation, which reads as a glitch.
+                                    .transition(.asymmetric(
+                                        insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .top)),
+                                        removal: .opacity
+                                    ))
                             }
                         }
 
@@ -335,7 +346,7 @@ struct SettingsView: View {
                     .font(.system(size: 11, weight: .semibold))
                 Spacer()
                 Button {
-                    withAnimation(.easeOut(duration: 0.16)) { showTokenHelp = false }
+                    withAnimation(Self.tokenHelpAnim) { showTokenHelp = false }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))
