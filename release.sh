@@ -193,9 +193,28 @@ else
 fi
 
 echo "→ Detaching calibration DMG"
-hdiutil detach "$DEVICE" -force >/dev/null
-trap - EXIT
-rm -f "$CALIB_DMG"
+# Finder / Spotlight can briefly hold the just-written volume, so detach fails
+# with "Resource busy" even with -force. Retry with backoff instead of letting
+# `set -e` abort the whole release on a transient cleanup hiccup — the
+# .DS_Store is already captured by this point, so a stubborn calibration mount
+# is harmless to the final DMG (built from the staging folder, not this image).
+sync
+detached=false
+for attempt in $(seq 1 8); do
+    if hdiutil detach "$DEVICE" -force >/dev/null 2>&1; then
+        detached=true
+        break
+    fi
+    echo "  calibration volume busy (attempt $attempt/8) — retrying in 3s"
+    sleep 3
+done
+if [[ "$detached" == true ]]; then
+    trap - EXIT
+    rm -f "$CALIB_DMG"
+else
+    echo "WARNING: calibration DMG wouldn't detach after retries — leaving it" >&2
+    echo "         for the EXIT trap; the final DMG is unaffected." >&2
+fi
 sleep 1
 
 # ------------------------------------------------------------------
