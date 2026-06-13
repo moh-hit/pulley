@@ -11,6 +11,7 @@ struct SettingsView: View {
     // show a "saved" hint and only write a new value if the user types one.
     @State private var token: String = ""
     @State private var tokenCleared: Bool = false
+    @State private var showTokenHelp: Bool = false
     @State private var orgs: [String] = {
         let saved = Config.orgs
         return saved.isEmpty ? [""] : saved
@@ -46,15 +47,23 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     section(title: "GITHUB", icon: "lock.shield") {
-                        field(label: "Personal access token", required: true) {
+                        field(
+                            label: "Personal access token",
+                            required: true,
+                            infoAction: {
+                                withAnimation(.easeOut(duration: 0.16)) { showTokenHelp.toggle() }
+                            },
+                            infoActive: showTokenHelp
+                        ) {
                             HStack(spacing: 6) {
                                 SecureField(
                                     Config.hasToken && !tokenCleared
                                         ? "•••••••••• (saved — leave blank to keep)"
-                                        : "ghp_...",
+                                        : "ghp_… or github_pat_…",
                                     text: $token
                                 )
                                 .textFieldStyle(.roundedBorder)
+                                .help("Paste a GitHub personal access token. Tap the ⓘ next to the label for a step-by-step setup guide.")
                                 Button("Paste") {
                                     if let s = NSPasteboard.general.string(forType: .string) {
                                         token = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -62,19 +71,25 @@ struct SettingsView: View {
                                     }
                                 }
                                 .controlSize(.small)
+                                .help("Paste the token from your clipboard")
                                 if !token.isEmpty {
                                     Button("Clear field") { token = "" }
                                         .controlSize(.small)
                                 } else if Config.hasToken && !tokenCleared {
                                     Button("Remove saved") { tokenCleared = true }
                                         .controlSize(.small)
+                                        .help("Delete the saved token from the Keychain on Save")
                                 }
                             }
                             caption(
                                 tokenCleared
                                     ? "Saved token will be removed on Save."
-                                    : "Scopes: repo, read:org · stored in macOS Keychain"
+                                    : "Classic or fine-grained PAT — tap ⓘ above for setup. Stored only in your macOS Keychain."
                             )
+                            if showTokenHelp {
+                                tokenHelpCard
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
                         }
 
                         field(label: "Organizations", required: true) {
@@ -260,7 +275,13 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func field<Content: View>(label: String, required: Bool = false, @ViewBuilder content: () -> Content) -> some View {
+    private func field<Content: View>(
+        label: String,
+        required: Bool = false,
+        infoAction: (() -> Void)? = nil,
+        infoActive: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 3) {
                 Text(label)
@@ -268,6 +289,15 @@ struct SettingsView: View {
                     .foregroundColor(.primary)
                 if required {
                     Text("*").foregroundColor(.red).font(.system(size: 11))
+                }
+                if let infoAction {
+                    Button(action: infoAction) {
+                        Image(systemName: infoActive ? "info.circle.fill" : "info.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help(infoActive ? "Hide token setup guide" : "How do I create a token?")
                 }
             }
             content()
@@ -279,6 +309,175 @@ struct SettingsView: View {
             .font(.system(size: 10))
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - Token setup guide
+
+    /// Pre-filled GitHub classic-token page: scopes are checked on arrival, so
+    /// the user just names it and clicks Generate.
+    private var classicTokenURL: URL {
+        URL(string: "https://github.com/settings/tokens/new?description=Pulley&scopes=repo,read:org,notifications")!
+    }
+
+    /// Fine-grained tokens can't be pre-filled (GitHub has no query param for
+    /// per-resource permissions), so we deep-link the page and list what to set.
+    private var fineGrainedTokenURL: URL {
+        URL(string: "https://github.com/settings/personal-access-tokens/new")!
+    }
+
+    private var tokenHelpCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 6) {
+                Image(systemName: "key.horizontal.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.accentColor)
+                Text("Create a token")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) { showTokenHelp = false }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Hide guide")
+            }
+
+            Text("Pick either type, click to open GitHub, generate the token, then paste it above and hit Save.")
+                .font(.system(size: 10.5))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            tokenOption(
+                title: "Classic token",
+                badge: "recommended",
+                summary: "Works for everything, including the Inbox. Scopes to check:",
+                rows: [
+                    ("repo", "PRs, reviews, merge, checks"),
+                    ("read:org", "list PRs across your orgs"),
+                    ("notifications", "Inbox tab (optional)"),
+                ],
+                mono: true,
+                buttonTitle: "Create classic token",
+                url: classicTokenURL,
+                note: "The link pre-checks these scopes for you — set No expiration (or your policy) and Generate."
+            )
+
+            tokenOption(
+                title: "Fine-grained token",
+                badge: nil,
+                summary: "Tighter, per-repo access — but the Inbox isn't available (GitHub has no notifications permission for these). Permissions to set:",
+                rows: [
+                    ("Pull requests", "Read and write"),
+                    ("Contents", "Read and write"),
+                    ("Checks", "Read and write"),
+                    ("Actions", "Read and write"),
+                    ("Commit statuses", "Read-only"),
+                ],
+                mono: false,
+                buttonTitle: "Create fine-grained token",
+                url: fineGrainedTokenURL,
+                note: "Under Repository access, pick the repos in the orgs above. Metadata: Read is added automatically."
+            )
+
+            HStack(spacing: 5) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                Text("Pulley keeps the token in your macOS Keychain — never on disk, and sent only to GitHub.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.accentColor.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.accentColor.opacity(0.22), lineWidth: 0.5)
+        )
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private func tokenOption(
+        title: String,
+        badge: String?,
+        summary: String,
+        rows: [(String, String)],
+        mono: Bool,
+        buttonTitle: String,
+        url: URL,
+        note: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                if let badge {
+                    Text(badge.uppercased())
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .tracking(0.4)
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                }
+                Spacer()
+            }
+
+            Text(summary)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(rows, id: \.0) { row in
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        Text(row.0)
+                            .font(.system(size: 9.5, weight: .semibold, design: mono ? .monospaced : .default))
+                            .foregroundColor(.primary.opacity(0.85))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.primary.opacity(0.07)))
+                        Text(row.1)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+
+            Button {
+                PRActions.openInBrowser(url)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.forward.square")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(buttonTitle)
+                        .font(.system(size: 10.5, weight: .medium))
+                }
+            }
+            .controlSize(.small)
+            .help("Opens \(url.host ?? "GitHub") in your browser")
+
+            Text(note)
+                .font(.system(size: 9.5))
+                .foregroundColor(.secondary.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(NSColor.textBackgroundColor).opacity(0.5))
+        )
     }
 
     // MARK: - Directory picker
