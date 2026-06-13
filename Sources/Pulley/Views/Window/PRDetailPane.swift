@@ -52,6 +52,15 @@ struct PRDetailPane: View {
     @State private var showReview: Bool = false
     @State private var showMergeConfirm: Bool = false
 
+    // Failed-check drill-down. Details are fetched on first expansion and
+    // cached per check id (globally unique), so toggling is free afterwards.
+    @State private var expandedChecks: Set<String> = []
+    @State private var checkDetails: [String: CheckRunDetails] = [:]
+    @State private var checkDetailsLoading: Set<String> = []
+    @State private var checkDetailsErrors: [String: String] = [:]
+    @State private var rerunningChecks = false
+    @State private var rerunError: String? = nil
+
     private enum InflightAction: Equatable { case draft, review, merge }
 
     enum DetailTab: Hashable { case summary, files }
@@ -107,6 +116,12 @@ struct PRDetailPane: View {
             draftComments = [:]
             commentAnchor = nil
             activeDraftID = nil
+            expandedChecks = []
+            checkDetails = [:]
+            checkDetailsLoading = []
+            checkDetailsErrors = [:]
+            rerunningChecks = false
+            rerunError = nil
             tab = .summary
             selectedFilePath = nil
             collapsedDirs = []
@@ -858,33 +873,236 @@ struct PRDetailPane: View {
 
     private var checksSection: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if pr.checkStatus == .failure {
+                rerunRow
+            }
             ForEach(pr.checks) { c in
-                HStack(spacing: 11) {
-                    Image(systemName: checkGlyph(c.rolled))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(checkColor(c.rolled))
-                        .frame(width: 16)
-                    Text(c.name)
-                        .font(.system(size: 13))
-                    Spacer()
-                    Text(c.conclusion ?? c.status)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                checkRow(c)
+            }
+        }
+    }
+
+    private var rerunRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                rerunFailedChecks()
+            } label: {
+                HStack(spacing: 6) {
+                    if rerunningChecks {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    Text(rerunningChecks ? "Re-running…" : "Re-run failed checks")
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(rerunningChecks)
+            if let err = rerunError {
+                Text(err)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    /// One check row. Failed check runs (those with a numeric run id — legacy
+    /// commit statuses have none) expand inline to their output + annotations.
+    @ViewBuilder
+    private func checkRow(_ c: CheckRun) -> some View {
+        let expandable = c.rolled == .failure && c.runID != nil
+        let expanded = expandedChecks.contains(c.id)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 11) {
+                Image(systemName: checkGlyph(c.rolled))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(checkColor(c.rolled))
+                    .frame(width: 16)
+                Text(c.name)
+                    .font(.system(size: 13))
+                if expandable {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                Spacer()
+                Text(c.conclusion ?? c.status)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.primary.opacity(0.07)))
+                if let url = c.url {
+                    Button {
+                        PRActions.openInBrowser(url)
+                    } label: {
+                        Image(systemName: "arrow.up.right.square")
+                            .foregroundColor(.secondary.opacity(0.65))
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard expandable else { return }
+                withAnimation(.easeOut(duration: 0.12)) { toggleCheckDetails(c) }
+            }
+            if expandable && expanded {
+                checkDetailsView(c)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func checkDetailsView(_ c: CheckRun) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if checkDetailsLoading.contains(c.id) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading output…")
+                        .font(.system(size: 12))
                         .foregroundColor(.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.primary.opacity(0.07)))
-                    if let url = c.url {
-                        Button {
-                            PRActions.openInBrowser(url)
-                        } label: {
-                            Image(systemName: "arrow.up.right.square")
-                                .foregroundColor(.secondary.opacity(0.65))
-                        }
-                        .buttonStyle(.borderless)
+                }
+            } else if let err = checkDetailsErrors[c.id] {
+                Text(err)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+                    .textSelection(.enabled)
+            } else if let details = checkDetails[c.id] {
+                if details.isEmpty {
+                    Text("No output reported — open the check in the browser for full logs.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .italic()
+                } else {
+                    if let title = details.outputTitle, !title.isEmpty {
+                        Text(title)
+                            .font(.system(size: 12, weight: .semibold))
+                            .textSelection(.enabled)
+                    }
+                    ForEach(details.annotations) { a in
+                        annotationRow(a)
+                    }
+                    if let summary = details.summary, !summary.isEmpty {
+                        MarkdownView(
+                            text: truncatedSummary(summary),
+                            bodyDesign: .default,
+                            bodySize: 12
+                        )
                     }
                 }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 4)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.035)))
+        .padding(.leading, 27)   // align with the check name, past the glyph
+        .padding(.bottom, 8)
+    }
+
+    private func annotationRow(_ a: CheckAnnotation) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: annotationGlyph(a.level))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(annotationColor(a.level))
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(a.locationLabel)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .textSelection(.enabled)
+                Text(a.message)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func annotationColor(_ level: String) -> Color {
+        switch level {
+        case "failure": return .red
+        case "warning": return .yellow
+        default:        return .secondary
+        }
+    }
+
+    private func annotationGlyph(_ level: String) -> String {
+        switch level {
+        case "failure": return "xmark.octagon.fill"
+        case "warning": return "exclamationmark.triangle.fill"
+        default:        return "info.circle.fill"
+        }
+    }
+
+    /// CI summaries can be hundreds of KB of markdown; cap what we render so
+    /// a pathological check can't swamp the pane.
+    private func truncatedSummary(_ s: String) -> String {
+        let limit = 4000
+        guard s.count > limit else { return s }
+        return String(s.prefix(limit)) + "\n\n*… output truncated — open the check for the rest.*"
+    }
+
+    private func toggleCheckDetails(_ c: CheckRun) {
+        if expandedChecks.contains(c.id) {
+            expandedChecks.remove(c.id)
+            return
+        }
+        expandedChecks.insert(c.id)
+        guard checkDetails[c.id] == nil,
+              !checkDetailsLoading.contains(c.id),
+              let runID = c.runID else { return }
+        guard let client = Config.makeClient() else {
+            checkDetailsErrors[c.id] = "Token not configured."
+            return
+        }
+        checkDetailsLoading.insert(c.id)
+        checkDetailsErrors[c.id] = nil
+        let org = pr.org, repo = pr.repo, id = c.id
+        Task {
+            do {
+                let details = try await client.fetchCheckRunDetails(org: org, repo: repo, runID: runID)
+                await MainActor.run {
+                    checkDetails[id] = details
+                    checkDetailsLoading.remove(id)
+                }
+            } catch {
+                await MainActor.run {
+                    checkDetailsErrors[id] = error.localizedDescription
+                    checkDetailsLoading.remove(id)
+                }
+            }
+        }
+    }
+
+    private func rerunFailedChecks() {
+        guard let client = Config.makeClient() else {
+            rerunError = "Token not configured."
+            return
+        }
+        rerunningChecks = true
+        rerunError = nil
+        let org = pr.org, repo = pr.repo, checks = pr.checks
+        Task {
+            do {
+                try await client.rerunFailedChecks(org: org, repo: repo, checks: checks)
+                await MainActor.run {
+                    rerunningChecks = false
+                    // Pull fresh state so the re-queued checks flip to pending.
+                    store.sync()
+                }
+            } catch {
+                await MainActor.run {
+                    rerunningChecks = false
+                    rerunError = error.localizedDescription
+                }
             }
         }
     }

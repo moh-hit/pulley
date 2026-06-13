@@ -6,7 +6,33 @@ loosely tracks [SemVer](https://semver.org/spec/v2.0.0.html) — patches
 for bugs, minor bumps for new features, major bumps for breaking changes
 to settings shape or filesystem layout.
 
-## [Unreleased]
+## [1.8.0] - 2026-06-13
+
+### Added
+- **CI failure details inline.** Failed checks in the detail pane's Checks
+  section now expand in place to show the check's own output — title,
+  markdown summary, and per-file annotations (`path:line` + message) — so
+  diagnosing a red build no longer means a trip to the browser. A
+  **Re-run failed checks** button re-runs only what failed: GitHub Actions
+  checks per workflow run via `rerun-failed-jobs` (same as the web UI),
+  anything else via the generic check-run re-request.
+- **Fine-grained token support.** The PR sync moved off the classic-only
+  `/search/issues` REST endpoint to a GraphQL search, so fine-grained PATs
+  now work (see README for the permissions to grant). The inbox still
+  requires a classic token and is skipped gracefully without one.
+- **Token setup guide in Settings.** The token field has an ⓘ button that
+  expands a compact guide — a segmented switch between classic and
+  fine-grained, the exact scopes/permissions each needs, and one-click links
+  to GitHub's token pages (the classic link pre-checks the scopes for you).
+
+### Changed
+- Each sync now costs four GraphQL searches per org instead of four REST
+  searches **plus two REST calls per PR** (detail + check runs) — noticeably
+  faster on busy scopes, and far gentler on the rate limit. CI status now
+  also includes legacy commit statuses (e.g. external CI reporting via the
+  status API), which the old check-runs-only fetch missed.
+
+## [1.7.0] - 2026-06-03
 
 ### Added
 - **Merge from Pulley.** The PR detail pane now shows a purple **Merge**

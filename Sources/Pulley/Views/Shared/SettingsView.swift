@@ -11,6 +11,20 @@ struct SettingsView: View {
     // show a "saved" hint and only write a new value if the user types one.
     @State private var token: String = ""
     @State private var tokenCleared: Bool = false
+    @State private var showTokenHelp: Bool = false
+    @State private var tokenHelpKind: TokenHelpKind = .classic
+
+    /// One animation for the token-guide reveal so the ⓘ toggle and the card's
+    /// own close button stay in lockstep.
+    private static let tokenHelpAnim: Animation = .spring(response: 0.34, dampingFraction: 0.9)
+
+    /// Which token type the guide is showing. The card displays one at a time
+    /// (segmented switch) so the panel stays short.
+    enum TokenHelpKind: String, CaseIterable, Identifiable {
+        case classic = "Classic"
+        case fineGrained = "Fine-grained"
+        var id: String { rawValue }
+    }
     @State private var orgs: [String] = {
         let saved = Config.orgs
         return saved.isEmpty ? [""] : saved
@@ -46,15 +60,23 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     section(title: "GITHUB", icon: "lock.shield") {
-                        field(label: "Personal access token", required: true) {
+                        field(
+                            label: "Personal access token",
+                            required: true,
+                            infoAction: {
+                                withAnimation(Self.tokenHelpAnim) { showTokenHelp.toggle() }
+                            },
+                            infoActive: showTokenHelp
+                        ) {
                             HStack(spacing: 6) {
                                 SecureField(
                                     Config.hasToken && !tokenCleared
                                         ? "•••••••••• (saved — leave blank to keep)"
-                                        : "ghp_...",
+                                        : "ghp_… or github_pat_…",
                                     text: $token
                                 )
                                 .textFieldStyle(.roundedBorder)
+                                .help("Paste a GitHub personal access token. Tap the ⓘ next to the label for a step-by-step setup guide.")
                                 Button("Paste") {
                                     if let s = NSPasteboard.general.string(forType: .string) {
                                         token = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -62,19 +84,32 @@ struct SettingsView: View {
                                     }
                                 }
                                 .controlSize(.small)
+                                .help("Paste the token from your clipboard")
                                 if !token.isEmpty {
                                     Button("Clear field") { token = "" }
                                         .controlSize(.small)
                                 } else if Config.hasToken && !tokenCleared {
                                     Button("Remove saved") { tokenCleared = true }
                                         .controlSize(.small)
+                                        .help("Delete the saved token from the Keychain on Save")
                                 }
                             }
                             caption(
                                 tokenCleared
                                     ? "Saved token will be removed on Save."
-                                    : "Scopes: repo, read:org · stored in macOS Keychain"
+                                    : "Classic or fine-grained PAT — tap ⓘ above for setup. Stored only in your macOS Keychain."
                             )
+                            if showTokenHelp {
+                                tokenHelpCard
+                                    // Expand in place (scale from the top edge +
+                                    // fade) rather than sliding down from above —
+                                    // a move transition overlaps the caption above
+                                    // it mid-animation, which reads as a glitch.
+                                    .transition(.asymmetric(
+                                        insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .top)),
+                                        removal: .opacity
+                                    ))
+                            }
                         }
 
                         field(label: "Organizations", required: true) {
@@ -260,7 +295,13 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func field<Content: View>(label: String, required: Bool = false, @ViewBuilder content: () -> Content) -> some View {
+    private func field<Content: View>(
+        label: String,
+        required: Bool = false,
+        infoAction: (() -> Void)? = nil,
+        infoActive: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 3) {
                 Text(label)
@@ -268,6 +309,15 @@ struct SettingsView: View {
                     .foregroundColor(.primary)
                 if required {
                     Text("*").foregroundColor(.red).font(.system(size: 11))
+                }
+                if let infoAction {
+                    Button(action: infoAction) {
+                        Image(systemName: infoActive ? "info.circle.fill" : "info.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help(infoActive ? "Hide token setup guide" : "How do I create a token?")
                 }
             }
             content()
@@ -279,6 +329,135 @@ struct SettingsView: View {
             .font(.system(size: 10))
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - Token setup guide
+
+    /// Pre-filled GitHub classic-token page: scopes are checked on arrival, so
+    /// the user just names it and clicks Generate.
+    private var classicTokenURL: URL {
+        URL(string: "https://github.com/settings/tokens/new?description=Pulley&scopes=repo,read:org,notifications")!
+    }
+
+    /// Fine-grained tokens can't be pre-filled (GitHub has no query param for
+    /// per-resource permissions), so we deep-link the page and list what to set.
+    private var fineGrainedTokenURL: URL {
+        URL(string: "https://github.com/settings/personal-access-tokens/new")!
+    }
+
+    private var tokenHelpCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Picker("", selection: $tokenHelpKind) {
+                    ForEach(TokenHelpKind.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .fixedSize()
+
+                Spacer(minLength: 8)
+
+                Button {
+                    withAnimation(Self.tokenHelpAnim) { showTokenHelp = false }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.plain)
+                .help("Hide guide")
+            }
+
+            Group {
+                switch tokenHelpKind {
+                case .classic:     classicHelp
+                case .fineGrained: fineGrainedHelp
+                }
+            }
+            .animation(.easeInOut(duration: 0.16), value: tokenHelpKind)
+
+            Text("Then paste it above and Save — stored only in your macOS Keychain.")
+                .font(.system(size: 9.5))
+                .foregroundColor(.secondary.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.accentColor.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.accentColor.opacity(0.2), lineWidth: 0.5)
+        )
+        .padding(.top, 4)
+    }
+
+    private var classicHelp: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Full access, including the Inbox. Scopes to tick:")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 5) {
+                scopeChip("repo")
+                scopeChip("read:org")
+                scopeChip("notifications")
+            }
+            createTokenButton("Open GitHub — scopes pre-filled", url: classicTokenURL)
+            Text("`notifications` is optional — it powers the Inbox tab.")
+                .font(.system(size: 9.5))
+                .foregroundColor(.secondary.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var fineGrainedHelp: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Per-repo access; no Inbox. Set these permissions:")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("**Read & write** — Pull requests, Contents, Checks, Actions")
+                Text("**Read** — Commit statuses")
+            }
+            .font(.system(size: 10))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            createTokenButton("Open GitHub", url: fineGrainedTokenURL)
+            Text("Under Repository access, pick the repos in your orgs. Metadata: Read is automatic.")
+                .font(.system(size: 9.5))
+                .foregroundColor(.secondary.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func scopeChip(_ s: String) -> some View {
+        Text(s)
+            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+            .foregroundColor(.primary.opacity(0.85))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(0.08)))
+    }
+
+    private func createTokenButton(_ title: String, url: URL) -> some View {
+        Button {
+            PRActions.openInBrowser(url)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up.forward.square")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 10.5, weight: .medium))
+            }
+        }
+        .controlSize(.small)
+        .help("Opens \(url.host ?? "GitHub") in your browser")
     }
 
     // MARK: - Directory picker
