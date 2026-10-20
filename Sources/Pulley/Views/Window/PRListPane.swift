@@ -40,6 +40,7 @@ struct PRListPane: View {
 
     @ViewBuilder
     private var listBody: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 if groupMode == .none {
@@ -49,6 +50,7 @@ struct PRListPane: View {
                             isSelected: selectedPRID == pr.id,
                             onSelect: { selectedPRID = pr.id }
                         )
+.id(pr.id)
                         if idx < prs.count - 1 {
                             Divider().opacity(0.35).padding(.leading, 18)
                         }
@@ -62,6 +64,7 @@ struct PRListPane: View {
                                     isSelected: selectedPRID == pr.id,
                                     onSelect: { selectedPRID = pr.id }
                                 )
+.id(pr.id)
                                 if idx < group.prs.count - 1 {
                                     Divider().opacity(0.35).padding(.leading, 18)
                                 }
@@ -72,6 +75,11 @@ struct PRListPane: View {
                     }
                 }
             }
+        }
+        .onChange(of: selectedPRID) { id in
+            guard let id else { return }
+            withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(id) }
+        }
         }
     }
 

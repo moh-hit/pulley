@@ -100,6 +100,7 @@ struct MainWindowView: View {
                 .padding(.trailing, 10)
         }
         .background(Theme.chrome)
+        .background(KeyCommands { handle($0) })
         .ignoresSafeArea()
         .sheet(isPresented: $showSettings) {
             SettingsView(onClose: { showSettings = false })
@@ -181,6 +182,39 @@ struct MainWindowView: View {
                     }
                 )
             }
+        }
+    }
+
+    /// List keyboard commands. Only meaningful on a PR list.
+    private func handle(_ command: KeyCommand) -> Bool {
+        guard filter != nil else { return false }
+        switch command {
+        case .move(let delta):
+            let ids = filtered.map(\.id)
+            guard !ids.isEmpty else { return true }
+            let current = selectedPRID.flatMap { ids.firstIndex(of: $0) }
+            let next = current.map { min(max($0 + delta, 0), ids.count - 1) } ?? (delta > 0 ? 0 : ids.count - 1)
+            selectedPRID = ids[next]
+            return true
+        case .openOnGitHub:
+            guard let pr = selectedPR else { return false }
+            PRActions.openInBrowser(pr.url)
+            return true
+        case .openInIDE:
+            guard let pr = selectedPR else { return false }
+            PRActions.checkoutAndOpen(pr: pr)
+            return true
+        case .copyBranch:
+            guard let pr = selectedPR, !pr.branch.isEmpty else { return false }
+            PRActions.copyToPasteboard(pr.branch)
+            return true
+        case .escape:
+            if selectedPRID != nil, !(NSApp.keyWindow?.firstResponder is NSText) {
+                selectedPRID = nil
+                return true
+            }
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            return true
         }
     }
 

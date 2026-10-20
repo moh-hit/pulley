@@ -2755,7 +2755,7 @@ struct EmptyDetail: View {
             Text("Select a PR")
                 .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
-            Text("Click or use ↑ ↓ to preview.")
+            Text("Click a pull request, or use ↑ ↓ to move, ↩ to open on GitHub, ⌘. to open in your IDE.")
                 .font(Theme.ui(11))
                 .foregroundColor(.secondary.opacity(0.7))
         }
