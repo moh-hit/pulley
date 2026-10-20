@@ -9,6 +9,8 @@ final class Store: ObservableObject {
     @Published var syncing: Bool = false
     @Published var lastError: String? = nil
     @Published var lastSync: Date? = nil
+    /// First name (or login) for the main window's greeting. Fetched once.
+    @Published var viewerName: String? = nil
 
     /// True only for debug launches explicitly started with
     /// `PULLEY_MOCK_DATA=1`. Mock mode never reads or writes user data.
@@ -58,6 +60,7 @@ final class Store: ObservableObject {
         if isMockData {
             prs = MockData.prs
             lastSync = Date().addingTimeInterval(-60)
+            viewerName = "Mohit"
         } else {
             loadCache()
             startTimer()
@@ -175,6 +178,9 @@ final class Store: ObservableObject {
                 self.saveCache()
                 self.lastSync = Date()
                 self.syncing = false
+                if self.viewerName == nil {
+                    self.viewerName = try? await client.fetchViewerFirstName()
+                }
                 NotificationsManager.shared.requestAuthorizationIfNeeded()
                 // Merge-flow changes the user just made themselves shouldn't
                 // come back as "removed from queue" style notifications.

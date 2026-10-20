@@ -8,6 +8,28 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+### Added
+- **Redesigned main window.** A sidebar replaces the tab strip: Home, the
+  pull request filters with live counts, Inbox, and your organizations,
+  with sync status and Settings at the bottom (⌘1–⌘7 to switch, ⌘R to
+  sync, ⌘, for Settings, ⌘F to search). Content sits on a raised panel
+  over a warm neutral background, in light and dark.
+- **Home.** A greeting with what needs you, cards for changes requested,
+  in review and approved (with how many are ready to merge) that jump to
+  that list, totals, and recently updated pull requests grouped by day.
+- **Collapsible sidebar.** Collapse it to an icon rail with the button
+  beside the window controls or ⌃⌘S; Pulley remembers your choice.
+- **New type and icons.** Geist for the interface, Geist Mono for
+  branches, PR numbers and diffs, Instrument Serif for headings and big
+  numbers, and Phosphor icons throughout. Fonts are bundled under the SIL
+  Open Font License and icons under MIT; both fall back to system fonts
+  and SF Symbols if they can't load.
+
+### Fixed
+- The detail pane no longer keeps showing a pull request after a filter
+  or search hides it from the list.
+- PR numbers no longer show a thousands separator (#1207, not #1,207).
+
 ### Developer
 - **Launch smoke test.** `./smoke-launch.sh` starts a built `Pulley.app`
   with the build tree's resource bundles hidden and fails if it doesn't

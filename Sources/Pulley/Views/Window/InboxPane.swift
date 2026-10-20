@@ -29,21 +29,20 @@ struct InboxPane: View {
                 list
             }
         }
-        .background(Color(NSColor.textBackgroundColor))
+        .background(Theme.panel)
     }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "tray")
-                .font(.system(size: 32, weight: .light))
+            Icon("tray", size: 32)
                 .foregroundColor(.secondary.opacity(0.45))
             Text(threads.isEmpty ? "Inbox zero" : "Nothing matches")
-                .font(.system(size: 14, weight: .medium))
+                .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
             Text(threads.isEmpty
                  ? "No unread notifications. Sync to refresh."
                  : "Try a different search.")
-                .font(.system(size: 11))
+                .font(Theme.ui(11))
                 .foregroundColor(.secondary.opacity(0.7))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -116,13 +115,12 @@ private struct InboxRow: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Image(systemName: typeGlyph)
-                        .font(.system(size: 11, weight: .semibold))
+                    Icon(typeGlyph, size: 11)
                         .foregroundColor(typeTint)
                         .frame(width: 14)
 
                     Text(thread.title)
-                        .font(.system(size: 14, weight: thread.unread ? .semibold : .regular))
+                        .font(Theme.ui(14, thread.unread ? .semibold : .regular))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -132,8 +130,7 @@ private struct InboxRow: View {
 
                     if hovered {
                         Button(action: onMarkRead) {
-                            Image(systemName: "envelope.open")
-                                .font(.system(size: 11, weight: .medium))
+                            Icon("envelope.open", size: 11)
                                 .foregroundColor(.secondary)
                                 .frame(width: 22, height: 20)
                                 .background(
@@ -146,7 +143,7 @@ private struct InboxRow: View {
                     }
 
                     Text(relativeTime(thread.updatedAt))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(Theme.mono(11))
                         .foregroundColor(.secondary.opacity(0.85))
                         .frame(width: 44, alignment: .trailing)
                         .help("Updated \(thread.updatedAt.formatted(date: .abbreviated, time: .shortened))")
@@ -174,7 +171,7 @@ private struct InboxRow: View {
 
     private var reasonChip: some View {
         Text(thread.reasonLabel.lowercased())
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(Theme.mono(10, .semibold))
             .foregroundColor(reasonTint)
             .lineLimit(1)
             .padding(.horizontal, 7)
@@ -190,7 +187,7 @@ private struct InboxRow: View {
                 .frame(width: 6, height: 6)
             (Text(thread.org + "/").foregroundColor(.secondary.opacity(0.6))
              + Text(thread.repo).foregroundColor(.secondary))
-                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .font(Theme.mono(11, .regular))
                 .lineLimit(1)
                 .truncationMode(.middle)
         }

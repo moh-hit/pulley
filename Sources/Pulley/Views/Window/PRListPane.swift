@@ -17,21 +17,20 @@ struct PRListPane: View {
                 listBody
             }
         }
-        .background(Color(NSColor.textBackgroundColor))
+        .background(Theme.panel)
     }
 
     // MARK: Empty
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "tray")
-                .font(.system(size: 32, weight: .light))
+            Icon("tray", size: 32)
                 .foregroundColor(.secondary.opacity(0.45))
             Text("Nothing here")
-                .font(.system(size: 14, weight: .medium))
+                .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
             Text("Try a different filter or sync.")
-                .font(.system(size: 11))
+                .font(Theme.ui(11))
                 .foregroundColor(.secondary.opacity(0.7))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -89,12 +88,12 @@ struct PRListPane: View {
                 .fill(groupAccent(group))
                 .frame(width: 7, height: 7)
             Text(group.label)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .font(Theme.mono(12, .semibold))
                 .tracking(0.6)
                 .foregroundColor(.primary.opacity(0.9))
                 .lineLimit(1)
             Text("\(group.prs.count)")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(Theme.mono(10, .medium))
                 .foregroundColor(.secondary.opacity(0.8))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1.5)
@@ -105,7 +104,7 @@ struct PRListPane: View {
         .padding(.top, isFirst ? 10 : 20)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.textBackgroundColor))
+        .background(Theme.panel)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.primary.opacity(0.07))
@@ -229,7 +228,7 @@ private struct WindowPRRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(pr.title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(Theme.ui(14, .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -242,7 +241,7 @@ private struct WindowPRRow: View {
                     .allowsHitTesting(actionsVisible)
 
                 Text(relativeTime(pr.updatedAt))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(Theme.mono(11))
                     .foregroundColor(.secondary.opacity(0.85))
                     .frame(width: 44, alignment: .trailing)
                     .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
@@ -270,8 +269,8 @@ private struct WindowPRRow: View {
 
                 Spacer(minLength: 0)
 
-                Text("#\(pr.number)")
-                    .font(.system(size: 11, design: .monospaced))
+                Text("#\(String(pr.number))")
+                    .font(Theme.mono(11))
                     .foregroundColor(.secondary.opacity(0.55))
                     .lineLimit(1)
                     .fixedSize()
@@ -291,7 +290,7 @@ private struct WindowPRRow: View {
 
     private var statusChip: some View {
         Text(pr.status.label.lowercased())
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(Theme.mono(10, .semibold))
             .foregroundColor(statusColor(pr.status))
             .lineLimit(1)
             .padding(.horizontal, 7)
@@ -307,12 +306,10 @@ private struct WindowPRRow: View {
             withAnimation(.easeOut(duration: 0.12)) { checksExpanded.toggle() }
         } label: {
             HStack(spacing: 3) {
-                Image(systemName: checkGlyph(pr.checkStatus))
-                    .font(.system(size: 9, weight: .semibold))
+                Icon(checkGlyph(pr.checkStatus), size: 9)
                 Text("\(pr.checks.count)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                Image(systemName: checksExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 7, weight: .semibold))
+                    .font(Theme.mono(10, .medium))
+                Icon(checksExpanded ? "chevron.up" : "chevron.down", size: 7)
                     .foregroundColor(checkColor(pr.checkStatus).opacity(0.7))
             }
             .foregroundColor(checkColor(pr.checkStatus))
@@ -332,10 +329,9 @@ private struct WindowPRRow: View {
     private var mergeChip: some View {
         let c = mergeableColor(pr.mergeableState)
         return HStack(spacing: 3) {
-            Image(systemName: mergeableGlyph(pr.mergeableState))
-                .font(.system(size: 9, weight: .semibold))
+            Icon(mergeableGlyph(pr.mergeableState), size: 9)
             Text(pr.mergeableState.label)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(Theme.mono(10, .medium))
                 .lineLimit(1)
         }
         .foregroundColor(c)
@@ -347,7 +343,7 @@ private struct WindowPRRow: View {
 
     private var draftChip: some View {
         Text("draft")
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .font(Theme.mono(10, .medium))
             .foregroundColor(.secondary)
             .lineLimit(1)
             .padding(.horizontal, 7)
@@ -363,7 +359,7 @@ private struct WindowPRRow: View {
                 .frame(width: 6, height: 6)
             (Text(pr.org + "/").foregroundColor(.secondary.opacity(0.6))
              + Text(pr.repo).foregroundColor(.secondary))
-                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .font(Theme.mono(11, .regular))
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -373,11 +369,10 @@ private struct WindowPRRow: View {
 
     private var branchInline: some View {
         HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 10))
+            Icon("arrow.triangle.branch", size: 10)
                 .layoutPriority(1)
             Text(pr.branch)
-                .font(.system(size: 11, design: .monospaced))
+                .font(Theme.mono(11))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(pr.branch)
@@ -470,22 +465,20 @@ private struct ChecksInlineRow: View {
             if let url = check.url { PRActions.openInBrowser(url) }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: checkGlyph(check.rolled))
-                    .font(.system(size: 10, weight: .semibold))
+                Icon(checkGlyph(check.rolled), size: 10)
                     .foregroundColor(checkColor(check.rolled))
                     .frame(width: 12)
                 Text(check.name)
-                    .font(.system(size: 11))
+                    .font(Theme.ui(11))
                     .foregroundColor(.primary.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 6)
                 Text(check.stateLabel)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(Theme.mono(9, .medium))
                     .foregroundColor(checkColor(check.rolled).opacity(0.9))
                 if check.url != nil {
-                    Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 9))
+                    Icon("arrow.up.right.square", size: 9)
                         .foregroundColor(.secondary.opacity(hovered ? 0.9 : 0.35))
                 }
             }
@@ -516,8 +509,7 @@ private struct RowIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
+            Icon(icon, size: 11)
                 .frame(width: 22, height: 20)
                 .foregroundColor(foreground)
                 .background(

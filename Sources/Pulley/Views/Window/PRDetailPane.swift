@@ -109,7 +109,7 @@ struct PRDetailPane: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(Color(NSColor.textBackgroundColor))
+        .background(Theme.panel)
         .onAppear {
             loadBody()
             loadFiles()
@@ -211,11 +211,11 @@ struct PRDetailPane: View {
         Button { tab = t } label: {
             HStack(spacing: 6) {
                 Text(label)
-                    .font(.system(size: 12.5, weight: selected ? .semibold : .regular))
+                    .font(Theme.ui(12.5, selected ? .semibold : .regular))
                     .foregroundColor(selected ? .primary : .secondary)
                 if let count {
                     Text("\(count)\(t == .files && filesCapped ? "+" : "")")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(Theme.mono(10, .semibold))
                         .foregroundColor(selected ? .primary.opacity(0.85) : .secondary.opacity(0.7))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -267,7 +267,7 @@ struct PRDetailPane: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("REVIEW")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .font(Theme.mono(10, .semibold))
                         .tracking(1.4)
                         .foregroundColor(.secondary.opacity(0.75))
                     Spacer()
@@ -276,7 +276,7 @@ struct PRDetailPane: View {
                         withAnimation(.easeOut(duration: 0.15)) { showReview = false }
                     } label: {
                         Text("Hide")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(Theme.ui(11, .medium))
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
@@ -291,10 +291,9 @@ struct PRDetailPane: View {
                 withAnimation(.easeOut(duration: 0.15)) { showReview = true }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12, weight: .semibold))
+                    Icon("square.and.pencil", size: 12)
                     Text("Add a review")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Theme.ui(12, .medium))
                 }
                 .foregroundColor(.accentColor)
                 .padding(.horizontal, 13)
@@ -327,7 +326,7 @@ struct PRDetailPane: View {
                 copilotStatusRow(state)
                 if let err = copilotError {
                     Text(err)
-                        .font(.system(size: 11))
+                        .font(Theme.ui(11))
                         .foregroundColor(.red)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -350,7 +349,7 @@ struct PRDetailPane: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .font(.system(size: 12, weight: .medium))
+            .font(Theme.ui(12, .medium))
         } else if let at = state.lastReviewAt {
             HStack(spacing: 8) {
                 Button {
@@ -362,7 +361,7 @@ struct PRDetailPane: View {
                             : "Copilot reviewed an older commit",
                         systemImage: "sparkles"
                     )
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Theme.ui(12, .medium))
                     .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -371,7 +370,7 @@ struct PRDetailPane: View {
                 if state.lastReviewedCommit != pr.headSha {
                     Button("Re-request") { requestCopilotReview() }
                         .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Theme.ui(12, .medium))
                         .foregroundColor(.accentColor)
                         .help("Ask Copilot to review the latest push")
                 }
@@ -381,7 +380,7 @@ struct PRDetailPane: View {
                 requestCopilotReview()
             } label: {
                 Label("Ask Copilot to review", systemImage: "sparkles")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Theme.ui(12, .medium))
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
@@ -403,17 +402,17 @@ struct PRDetailPane: View {
             centeredMessage {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Loading files…").font(.system(size: 12)).foregroundColor(.secondary)
+                    Text("Loading files…").font(Theme.ui(12)).foregroundColor(.secondary)
                 }
             }
         } else if let err = filesError {
             centeredMessage {
-                Text(err).foregroundColor(.red).font(.system(size: 12))
+                Text(err).foregroundColor(.red).font(Theme.ui(12))
                     .multilineTextAlignment(.center)
             }
         } else if files.isEmpty {
             centeredMessage {
-                Text("No file changes.").font(.system(size: 13)).foregroundColor(.secondary).italic()
+                Text("No file changes.").font(Theme.ui(13)).foregroundColor(.secondary).italic()
             }
         } else {
             VStack(spacing: 0) {
@@ -435,11 +434,10 @@ struct PRDetailPane: View {
                         } else {
                             centeredMessage {
                                 VStack(spacing: 8) {
-                                    Image(systemName: "sidebar.left")
-                                        .font(.system(size: 26, weight: .light))
+                                    Icon("sidebar.left", size: 26)
                                         .foregroundColor(.secondary.opacity(0.35))
                                     Text("Select a file to view its diff.")
-                                        .font(.system(size: 13))
+                                        .font(Theme.ui(13))
                                         .foregroundColor(.secondary)
                                 }
                             }
@@ -466,7 +464,7 @@ struct PRDetailPane: View {
                 )
                 if filesCapped {
                     Text("Showing first 100 files. Open on GitHub to see the rest.")
-                        .font(.system(size: 11))
+                        .font(Theme.ui(11))
                         .foregroundColor(.secondary)
                         .italic()
                         .padding(.top, 10)
@@ -500,7 +498,7 @@ struct PRDetailPane: View {
     private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(Theme.mono(10, .semibold))
                 .tracking(1.4)
                 .foregroundColor(.secondary.opacity(0.75))
             content()
@@ -511,7 +509,7 @@ struct PRDetailPane: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 Text(pr.title)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(Theme.ui(20, .semibold))
                     .textSelection(.enabled)
                     .lineSpacing(1)
                     .fixedSize(horizontal: false, vertical: true)
@@ -524,12 +522,12 @@ struct PRDetailPane: View {
 
             HStack(spacing: 8) {
                 Text("\(pr.org)/\(pr.repo)")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(Theme.mono(12))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("#\(pr.number)")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                Text("#\(String(pr.number))")
+                    .font(Theme.mono(12, .semibold))
                     .foregroundColor(.accentColor)
                     .fixedSize()
                 if !pr.branch.isEmpty {
@@ -565,7 +563,7 @@ struct PRDetailPane: View {
                 diffStat
             }
             Text("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(.system(size: 11, design: .monospaced))
+                .font(Theme.mono(11))
                 .foregroundColor(.secondary.opacity(0.7))
                 .lineLimit(1)
         }
@@ -581,16 +579,16 @@ struct PRDetailPane: View {
         if !files.isEmpty {
             HStack(spacing: 8) {
                 Text("\(files.count) file\(files.count == 1 ? "" : "s")")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(Theme.mono(11))
                     .foregroundColor(.secondary.opacity(0.8))
                 if totalAdditions > 0 {
                     Text("+\(totalAdditions.formatted())")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(Theme.mono(11, .semibold))
                         .foregroundColor(.green)
                 }
                 if totalDeletions > 0 {
                     Text("−\(totalDeletions.formatted())")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(Theme.mono(11, .semibold))
                         .foregroundColor(.red)
                 }
             }
@@ -641,7 +639,7 @@ struct PRDetailPane: View {
         // and the review section (which has its own error line) may be closed.
         if inflightAction == nil, let err = actionError, !showReview {
             Text(err)
-                .font(.system(size: 12))
+                .font(Theme.ui(12))
                 .foregroundColor(.red)
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -663,7 +661,7 @@ struct PRDetailPane: View {
                 help: openDownstack.isEmpty ? "Merge this PR" : "Merge this PR and the open PRs below it in the stack"
             )
                 .confirmationDialog(
-                    "Merge \(pr.repo)#\(pr.number)?",
+                    "Merge \(pr.repo)#\(String(pr.number))?",
                     isPresented: $showMergeConfirm,
                     titleVisibility: .visible
                 ) {
@@ -685,7 +683,7 @@ struct PRDetailPane: View {
         case .enqueue:
             mergeFlowButton(title: "Merge when ready", help: "Add this PR to the merge queue")
                 .confirmationDialog(
-                    "Add \(pr.repo)#\(pr.number) to the merge queue?",
+                    "Add \(pr.repo)#\(String(pr.number)) to the merge queue?",
                     isPresented: $showMergeConfirm,
                     titleVisibility: .visible
                 ) {
@@ -711,7 +709,7 @@ struct PRDetailPane: View {
                     : "Merge automatically once checks and reviews pass"
             )
             .confirmationDialog(
-                "Merge \(pr.repo)#\(pr.number) when ready?",
+                "Merge \(pr.repo)#\(String(pr.number)) when ready?",
                 isPresented: $showMergeConfirm,
                 titleVisibility: .visible
             ) {
@@ -813,7 +811,7 @@ struct PRDetailPane: View {
         HStack(spacing: 8) {
             if let stack = pr.stack {
                 Label("Stack · \(stack.position) of \(stack.size)", systemImage: "square.stack.3d.up")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Theme.ui(11, .semibold))
                     .foregroundColor(.secondary)
                     .fixedSize()
             }
@@ -821,8 +819,7 @@ struct PRDetailPane: View {
                 HStack(spacing: 4) {
                     ForEach(Array(stackEntries.enumerated()), id: \.element.id) { idx, entry in
                         if idx > 0 {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 8, weight: .semibold))
+                            Icon("chevron.right", size: 8)
                                 .foregroundColor(.secondary.opacity(0.5))
                         }
                         StackEntryChip(entry: entry, isCurrent: entry.number == pr.number) {
@@ -856,7 +853,7 @@ struct PRDetailPane: View {
 
             if let err = actionError {
                 Text(err)
-                    .font(.system(size: 12))
+                    .font(Theme.ui(12))
                     .foregroundColor(.red)
                     .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
@@ -867,16 +864,15 @@ struct PRDetailPane: View {
     private var inlineDraftSubmitBar: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "text.bubble.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                Icon("text.bubble.fill", size: 11)
                     .foregroundColor(.accentColor)
                 Text("\(readyDraftComments.count) inline draft\(readyDraftComments.count == 1 ? "" : "s") ready")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Theme.ui(12, .semibold))
                     .foregroundColor(.primary)
                 let emptyCount = draftComments.count - readyDraftComments.count
                 if emptyCount > 0 {
                     Text("\(emptyCount) empty")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(Theme.mono(10, .medium))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
@@ -889,7 +885,7 @@ struct PRDetailPane: View {
                     activeDraftID = nil
                 } label: {
                     Text("Discard all")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(Theme.ui(11, .medium))
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -982,11 +978,10 @@ struct PRDetailPane: View {
                     ProgressView().controlSize(.small)
                 } else {
                     // checkmark = "make it ready"; pencil = "back to a draft".
-                    Image(systemName: pr.isDraft ? "checkmark.circle" : "pencil.circle")
-                        .font(.system(size: 11, weight: .medium))
+                    Icon(pr.isDraft ? "checkmark.circle" : "pencil.circle", size: 11)
                 }
                 Text(pr.isDraft ? "Mark ready" : "Convert to draft")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Theme.ui(11, .medium))
                     .fixedSize()
             }
             .foregroundColor(.secondary)
@@ -1250,14 +1245,14 @@ struct PRDetailPane: View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text("Loading description…")
-                    .font(.system(size: 12))
+                    .font(Theme.ui(12))
                     .foregroundColor(.secondary)
             }
         } else if let err = loadError {
-            Text(err).foregroundColor(.red).font(.system(size: 12))
+            Text(err).foregroundColor(.red).font(Theme.ui(12))
         } else if descriptionText.isEmpty {
             Text("No description.")
-                .font(.system(size: 13))
+                .font(Theme.ui(13))
                 .foregroundColor(.secondary)
                 .italic()
         } else {
@@ -1285,18 +1280,17 @@ struct PRDetailPane: View {
                     if rerunningChecks {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .semibold))
+                        Icon("arrow.clockwise", size: 11)
                     }
                     Text(rerunningChecks ? "Re-running…" : "Re-run failed checks")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(Theme.ui(12, .medium))
                 }
             }
             .buttonStyle(.bordered)
             .disabled(rerunningChecks)
             if let err = rerunError {
                 Text(err)
-                    .font(.system(size: 11))
+                    .font(Theme.ui(11))
                     .foregroundColor(.red)
                     .textSelection(.enabled)
             }
@@ -1312,21 +1306,19 @@ struct PRDetailPane: View {
         let expanded = expandedChecks.contains(c.id)
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
-                Image(systemName: checkGlyph(c.rolled))
-                    .font(.system(size: 12, weight: .semibold))
+                Icon(checkGlyph(c.rolled), size: 12)
                     .foregroundColor(checkColor(c.rolled))
                     .frame(width: 16)
                 Text(c.name)
-                    .font(.system(size: 13))
+                    .font(Theme.ui(13))
                 if expandable {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                    Icon("chevron.right", size: 9)
                         .foregroundColor(.secondary.opacity(0.6))
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
                 Spacer()
                 Text(c.conclusion ?? c.status)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(Theme.mono(10, .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
@@ -1335,7 +1327,7 @@ struct PRDetailPane: View {
                     Button {
                         PRActions.openInBrowser(url)
                     } label: {
-                        Image(systemName: "arrow.up.right.square")
+                        Icon("arrow.up.right.square", size: 12)
                             .foregroundColor(.secondary.opacity(0.65))
                     }
                     .buttonStyle(.borderless)
@@ -1361,24 +1353,24 @@ struct PRDetailPane: View {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Loading output…")
-                        .font(.system(size: 12))
+                        .font(Theme.ui(12))
                         .foregroundColor(.secondary)
                 }
             } else if let err = checkDetailsErrors[c.id] {
                 Text(err)
-                    .font(.system(size: 11))
+                    .font(Theme.ui(11))
                     .foregroundColor(.red)
                     .textSelection(.enabled)
             } else if let details = checkDetails[c.id] {
                 if details.isEmpty {
                     Text("No output reported — open the check in the browser for full logs.")
-                        .font(.system(size: 12))
+                        .font(Theme.ui(12))
                         .foregroundColor(.secondary)
                         .italic()
                 } else {
                     if let title = details.outputTitle, !title.isEmpty {
                         Text(title)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(Theme.ui(12, .semibold))
                             .textSelection(.enabled)
                     }
                     ForEach(details.annotations) { a in
@@ -1403,16 +1395,15 @@ struct PRDetailPane: View {
 
     private func annotationRow(_ a: CheckAnnotation) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: annotationGlyph(a.level))
-                .font(.system(size: 11, weight: .semibold))
+            Icon(annotationGlyph(a.level), size: 11)
                 .foregroundColor(annotationColor(a.level))
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 3) {
                 Text(a.locationLabel)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .font(Theme.mono(11, .semibold))
                     .textSelection(.enabled)
                 Text(a.message)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(Theme.mono(12))
                     .foregroundColor(.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1505,6 +1496,11 @@ struct PRDetailPane: View {
         loading = true
         loadError = nil
         descriptionText = ""
+        if store.isMockData {
+            descriptionText = MockData.description(for: pr)
+            loading = false
+            return
+        }
         guard let client = Config.makeClient() else {
             loadError = "Token not configured."
             loading = false
@@ -1723,7 +1719,7 @@ private struct ReviewComposer: View {
             // single-line collapse when empty — none of which TextEditor does.
             TextField("", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(Theme.ui(13))
                 .lineLimit(2...7)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 9)
@@ -1732,7 +1728,7 @@ private struct ReviewComposer: View {
 
             if text.isEmpty {
                 Text("Leave a comment…")
-                    .font(.system(size: 13))
+                    .font(Theme.ui(13))
                     .foregroundColor(.secondary.opacity(0.55))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
@@ -1784,7 +1780,7 @@ private struct FileStatusBadge: View {
     let status: String
     var body: some View {
         Text(fileStatusLetter(status))
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .font(Theme.mono(9, .bold))
             .foregroundColor(fileStatusTint(status))
             .frame(width: 15, height: 15)
             .background(
@@ -1941,31 +1937,29 @@ private struct FileTreeRow: View {
         HStack(spacing: 6) {
             Spacer().frame(width: CGFloat(depth) * 14)
             if node.isDir {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                Icon(isExpanded ? "chevron.down" : "chevron.right", size: 9)
                     .foregroundColor(.secondary)
                     .frame(width: 10)
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 11))
+                Icon("folder.fill", size: 11)
                     .foregroundColor(.secondary.opacity(0.7))
             } else {
                 Spacer().frame(width: 10)
                 FileStatusBadge(status: node.file?.status ?? "")
             }
             Text(node.name)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular, design: .monospaced))
+                .font(Theme.mono(12, isSelected ? .semibold : .regular))
                 .foregroundColor(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
             if node.additions > 0 {
                 Text("+\(node.additions)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(Theme.mono(10, .medium))
                     .foregroundColor(.green.opacity(node.isDir ? 0.6 : 1))
             }
             if node.deletions > 0 {
                 Text("−\(node.deletions)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(Theme.mono(10, .medium))
                     .foregroundColor(.red.opacity(node.isDir ? 0.6 : 1))
             }
         }
@@ -2002,17 +1996,17 @@ private struct FileDiffScreen: View {
                 Spacer(minLength: 8)
                 if file.additions > 0 {
                     Text("+\(file.additions)")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(Theme.mono(11, .semibold))
                         .foregroundColor(.green)
                 }
                 if file.deletions > 0 {
                     Text("−\(file.deletions)")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(Theme.mono(11, .semibold))
                         .foregroundColor(.red)
                 }
                 if let url = file.blobUrl {
                     Button { PRActions.openInBrowser(url) } label: {
-                        Image(systemName: "arrow.up.right.square")
+                        Icon("arrow.up.right.square", size: 12)
                             .foregroundColor(.secondary.opacity(0.65))
                     }
                     .buttonStyle(.borderless)
@@ -2043,7 +2037,7 @@ private struct FileDiffScreen: View {
                     Text(file.status == "renamed" && file.changes == 0
                          ? "File renamed without changes."
                          : "No inline diff available (binary or too large).")
-                        .font(.system(size: 12))
+                        .font(Theme.ui(12))
                         .foregroundColor(.secondary)
                         .italic()
                         .padding(20)
@@ -2058,17 +2052,16 @@ private struct FileDiffScreen: View {
         if file.status == "renamed", let old = file.previousFilename {
             HStack(spacing: 5) {
                 Text(old).foregroundColor(.secondary)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 9))
+                Icon("arrow.right", size: 9)
                     .foregroundColor(.secondary)
                 Text(file.filename)
             }
-            .font(.system(size: 12, design: .monospaced))
+            .font(Theme.mono(12))
             .lineLimit(1)
             .truncationMode(.middle)
         } else {
             Text(file.filename)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(Theme.mono(12, .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -2123,7 +2116,7 @@ private struct DiffPatchView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(hunks) { hunk in
                     Text(hunk.header)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(Theme.mono(11))
                         .foregroundColor(.accentColor)
                         .padding(.vertical, 3)
                         .padding(.horizontal, 8)
@@ -2289,7 +2282,7 @@ private struct DiffLineRow: View {
                     gutter(line.newLine)
 
                     Text(marker + line.text)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(Theme.mono(12))
                         .foregroundColor(.primary)
                         .padding(.leading, 6)
                         .lineLimit(1)
@@ -2333,7 +2326,7 @@ private struct DiffLineRow: View {
 
     private func gutter(_ n: Int?) -> some View {
         Text(n.map(String.init) ?? "")
-            .font(.system(size: 10, design: .monospaced))
+            .font(Theme.mono(10))
             .foregroundColor(.secondary.opacity(0.6))
             .frame(width: 38, alignment: .trailing)
             .padding(.trailing, 4)
@@ -2341,8 +2334,7 @@ private struct DiffLineRow: View {
 
     private var commentAffordance: some View {
         Button(action: handleLineTap) {
-            Image(systemName: hasReadyDraft ? "text.bubble.fill" : "plus.bubble")
-                .font(.system(size: 11, weight: .semibold))
+            Icon(hasReadyDraft ? "text.bubble.fill" : "plus.bubble", size: 11)
                 .foregroundColor(hasDraft ? .accentColor : .secondary.opacity(0.75))
                 .frame(width: 22, height: 18)
                 .background(
@@ -2574,8 +2566,7 @@ private struct InlineDraftCommentEditor: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "text.bubble")
-                .font(.system(size: 12, weight: .semibold))
+            Icon("text.bubble", size: 12)
                 .foregroundColor(.accentColor)
                 .frame(width: 18)
                 .padding(.top, 10)
@@ -2583,17 +2574,16 @@ private struct InlineDraftCommentEditor: View {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 8) {
                     Text("Draft comment")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(Theme.ui(11, .semibold))
                         .foregroundColor(.primary)
                     Text(location)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(Theme.mono(10))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 8)
                     Button(action: onDelete) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 10, weight: .medium))
+                        Icon("trash", size: 10)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
@@ -2602,7 +2592,7 @@ private struct InlineDraftCommentEditor: View {
 
                 TextField("Leave an inline comment…", text: $text, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(Theme.ui(12))
                     .lineLimit(2...6)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 8)
@@ -2654,30 +2644,29 @@ private struct PostedCommentRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(comment.authorLogin)
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(Theme.ui(11.5, .semibold))
                         .foregroundColor(.primary)
                     if comment.isBot {
                         Text("bot")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .font(Theme.mono(9, .medium))
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Capsule().fill(Color.primary.opacity(0.07)))
                     }
                     Text(relativeTime(comment.createdAt))
-                        .font(.system(size: 10.5))
+                        .font(Theme.ui(10.5))
                         .foregroundColor(.secondary)
                     if collapsed {
                         Text(firstLine)
-                            .font(.system(size: 12))
+                            .font(Theme.ui(12))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
                     Spacer(minLength: 0)
                     if comment.isBot {
-                        Image(systemName: botExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
+                        Icon(botExpanded ? "chevron.up" : "chevron.down", size: 8)
                             .foregroundColor(.secondary.opacity(0.7))
                     }
                 }
@@ -2735,16 +2724,15 @@ private struct PostedCommentRow: View {
 private struct ConflictBanner: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 14, weight: .semibold))
+            Icon("exclamationmark.triangle.fill", size: 14)
                 .foregroundColor(.red)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Merge conflicts with the base branch")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Theme.ui(13, .semibold))
                     .foregroundColor(.primary)
                 Text("Rebase or merge the base branch locally before this PR can be merged.")
-                    .font(.system(size: 12))
+                    .font(Theme.ui(12))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2766,18 +2754,17 @@ private struct ConflictBanner: View {
 struct EmptyDetail: View {
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 36, weight: .light))
+            Icon("arrow.triangle.branch", size: 36)
                 .foregroundColor(.secondary.opacity(0.35))
             Text("Select a PR")
-                .font(.system(size: 14, weight: .medium))
+                .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
             Text("Click or use ↑ ↓ to preview.")
-                .font(.system(size: 11))
+                .font(Theme.ui(11))
                 .foregroundColor(.secondary.opacity(0.7))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(NSColor.textBackgroundColor))
+        .background(Theme.panel)
     }
 }
 
@@ -2795,20 +2782,19 @@ private struct MergeFlowStatus: View {
     var body: some View {
         let tint = warn ? Color.orange : mergePurple
         HStack(spacing: 7) {
-            Image(systemName: busy ? "hourglass" : icon)
-                .font(.system(size: 11, weight: .semibold))
+            Icon(busy ? "hourglass" : icon, size: 11)
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(Theme.ui(12, .semibold))
             if let detail {
                 Text(detail)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(Theme.mono(11))
                     .foregroundColor(tint.opacity(0.85))
             }
             if let actionTitle {
                 Divider().frame(height: 12)
                 Button(actionTitle, action: action)
                     .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Theme.ui(11, .medium))
                     .foregroundColor(.secondary)
             }
         }
@@ -2838,11 +2824,10 @@ private struct StackEntryChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Image(systemName: glyph)
-                    .font(.system(size: 9, weight: .semibold))
+                Icon(glyph, size: 9)
                     .foregroundColor(tint)
-                Text("#\(entry.number)")
-                    .font(.system(size: 11, weight: isCurrent ? .semibold : .medium, design: .monospaced))
+                Text("#\(String(entry.number))")
+                    .font(Theme.mono(11, isCurrent ? .semibold : .medium))
                     .foregroundColor(isCurrent ? .primary : .secondary)
             }
             .padding(.horizontal, 7)

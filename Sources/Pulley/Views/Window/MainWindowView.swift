@@ -40,28 +40,25 @@ enum SidebarFilter: Hashable, Identifiable {
     }
 }
 
-/// Two top-level surfaces in the main window: a PR list (default) and the
-/// notifications inbox. Selecting either is a one-click switch in HeaderBar.
-enum MainViewMode: Hashable {
-    case prs
-    case inbox
-}
-
 struct MainWindowView: View {
     @EnvironmentObject var store: Store
-    @State private var filter: SidebarFilter = .all
+    @State private var section: MainSection = .home
     @State private var selectedPRID: String? = nil
     @State private var query: String = ""
     @State private var showSettings: Bool = false
     @State private var groupMode: ListGroupMode = .none
-    @State private var viewMode: MainViewMode = .prs
     /// True while the detail pane is showing a full-pane file diff — we hide the
-    /// PR list so the diff spans the whole window.
+    /// PR list so the diff spans the whole panel.
     @State private var diffFullScreen: Bool = false
+
+    private var filter: SidebarFilter? {
+        if case .prs(let f) = section { return f }
+        return nil
+    }
 
     private var filtered: [PR] {
         let base: [PR]
-        switch filter {
+        switch filter ?? .all {
         case .all:                base = store.prs
         case .status(let s):      base = store.prs.filter { $0.status == s }
         case .org(let o):         base = store.prs.filter { $0.org == o }
@@ -73,78 +70,119 @@ struct MainWindowView: View {
         }
     }
 
+    /// Only a PR the list is actually showing — a filter or search that hides
+    /// the selected PR clears the detail pane rather than leaving it stale.
     private var selectedPR: PR? {
         guard let id = selectedPRID else { return nil }
-        return store.prs.first { $0.id == id }
+        return filtered.first { $0.id == id }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HeaderBar(
-                filter: $filter,
-                query: $query,
-                groupMode: $groupMode,
-                viewMode: $viewMode,
-                prs: store.prs,
-                filteredCount: filtered.count,
-                inboxCount: store.unreadInboxCount,
-                lastSync: store.lastSync,
-                syncing: store.syncing
-            )
-
-            Group {
-                switch viewMode {
-                case .prs:
-                    HSplitView {
-                        if !(diffFullScreen && selectedPR != nil) {
-                            PRListPane(
-                                prs: filtered,
-                                selectedPRID: $selectedPRID,
-                                groupMode: $groupMode,
-                                filter: filter
-                            )
-                            .frame(minWidth: 340, idealWidth: 440, maxWidth: 520)
-                        }
-
-                        Group {
-                            if let pr = selectedPR {
-                                // A fresh pane per PR: loads in `onChange(of: pr.id)`
-                                // read a stale `pr`, fetching the previous PR's data.
-                                PRDetailPane(pr: pr, fullScreenDiff: $diffFullScreen)
-                                    .id(pr.id)
-                            } else {
-                                EmptyDetail()
-                            }
-                        }
-                        .frame(minWidth: 480, idealWidth: 760, maxWidth: .infinity)
-                    }
-                case .inbox:
-                    InboxPane(
-                        threads: store.notifications,
-                        query: query,
-                        onOpen: { thread in
-                            if let url = thread.url {
-                                PRActions.openInBrowser(url)
-                            }
-                            store.markNotificationRead(thread.id)
-                        },
-                        onMarkRead: { id in
-                            store.markNotificationRead(id)
-                        }
-                    )
-                }
-            }
+        HStack(spacing: 0) {
+            SidebarView(section: $section, onOpenSettings: { showSettings = true })
+            panel
+                .background(Theme.panel)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Theme.hairline, lineWidth: 1)
+                )
+                .padding(.vertical, 10)
+                .padding(.trailing, 10)
         }
+        .background(Theme.chrome)
+        .ignoresSafeArea()
         .sheet(isPresented: $showSettings) {
             SettingsView(onClose: { showSettings = false })
                 .environmentObject(store)
                 .frame(width: 560, height: 640)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .pulleyMainOpenSettings)) { _ in
-            showSettings = true
+        .onChange(of: section) { _ in
+            query = ""
+            diffFullScreen = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .pulleySelectPR)) { note in
-            if let id = note.object as? String { selectedPRID = id }
+            guard let id = note.object as? String else { return }
+            open(section: filter == nil ? .prs(.all) : section, selecting: id)
+        }
+    }
+
+    @ViewBuilder
+    private var panel: some View {
+        switch section {
+        case .home:
+            HomePane(
+                onOpen: { target, prID in open(section: target, selecting: prID) },
+                onOpenSettings: { showSettings = true }
+            )
+        case .prs(let filter):
+            VStack(spacing: 0) {
+                if !(diffFullScreen && selectedPR != nil) {
+                    PanelHeader(
+                        title: filter.label,
+                        subtitle: "\(filtered.count) pull request\(filtered.count == 1 ? "" : "s")",
+                        query: $query,
+                        searchPrompt: "Search pull requests",
+                        groupMode: $groupMode
+                    )
+                }
+                HSplitView {
+                    if !(diffFullScreen && selectedPR != nil) {
+                        PRListPane(
+                            prs: filtered,
+                            selectedPRID: $selectedPRID,
+                            groupMode: $groupMode,
+                            filter: filter
+                        )
+                        .frame(minWidth: 340, idealWidth: 420, maxWidth: 520)
+                    }
+
+                    Group {
+                        if let pr = selectedPR {
+                            // A fresh pane per PR: loads in `onChange(of: pr.id)`
+                            // read a stale `pr`, fetching the previous PR's data.
+                            PRDetailPane(pr: pr, fullScreenDiff: $diffFullScreen)
+                                .id(pr.id)
+                        } else {
+                            EmptyDetail()
+                        }
+                    }
+                    .frame(minWidth: 480, idealWidth: 760, maxWidth: .infinity)
+                }
+            }
+        case .inbox:
+            VStack(spacing: 0) {
+                PanelHeader(
+                    title: "Inbox",
+                    subtitle: "\(store.unreadInboxCount) unread",
+                    query: $query,
+                    searchPrompt: "Search notifications"
+                )
+                InboxPane(
+                    threads: store.notifications,
+                    query: query,
+                    onOpen: { thread in
+                        if let url = thread.url {
+                            PRActions.openInBrowser(url)
+                        }
+                        store.markNotificationRead(thread.id)
+                    },
+                    onMarkRead: { id in
+                        store.markNotificationRead(id)
+                    }
+                )
+            }
+        }
+    }
+
+    /// Switch section, then select a PR there. The selection is applied after
+    /// the section change so its query reset doesn't race it.
+    private func open(section target: MainSection, selecting prID: String?) {
+        section = target
+        guard let prID else { return }
+        DispatchQueue.main.async {
+            query = ""
+            selectedPRID = prID
         }
     }
 }
