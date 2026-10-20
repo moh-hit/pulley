@@ -286,7 +286,7 @@ private struct WindowPRRow: View {
             }
         }
         .padding(.horizontal, 15)
-        .padding(.vertical, 11)
+        .padding(.vertical, Config.listDensity.rowPadding)
     }
 
     // MARK: chips

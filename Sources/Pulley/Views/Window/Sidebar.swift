@@ -1,6 +1,27 @@
 import SwiftUI
 import AppKit
 
+extension AppearanceMode {
+    /// Force light/dark for the whole app, or follow the system.
+    @MainActor func apply() {
+        switch self {
+        case .system: NSApp.appearance = nil
+        case .light:  NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:   NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
+extension StartPage {
+    var section: MainSection {
+        switch self {
+        case .home:    return .home
+        case .all:     return .prs(.all)
+        case .changes: return .prs(.status(.changes))
+        }
+    }
+}
+
 /// Top-level places in the main window, picked from the sidebar.
 enum MainSection: Hashable {
     case home
@@ -104,7 +125,8 @@ struct SidebarView: View {
         .padding(.bottom, 12)
         // The collapsed rail must clear the traffic lights (~70pt), or they
         // overlap the content panel's rounded corner.
-        .frame(width: collapsed ? 76 : 214)
+        // Grows with Large text so labels like "Changes requested" still fit.
+        .frame(width: collapsed ? 76 : 214 * max(1, Theme.scale))
         .clipped()
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { nowTick = $0 }
     }

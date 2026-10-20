@@ -13,7 +13,7 @@ struct Icon: View {
 
     init(_ name: String, size: CGFloat = 13) {
         self.name = name
-        self.size = size
+        self.size = size * Theme.scale
     }
 
     var body: some View {

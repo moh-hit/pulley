@@ -192,6 +192,25 @@ struct GitHubClient: Sendable {
         return u.login
     }
 
+    /// Who the token belongs to and, for classic tokens, its scopes (from the
+    /// `X-OAuth-Scopes` header). Fine-grained tokens send no scope header, so
+    /// `scopes` is nil for them. Used by Settings → Test connection.
+    func tokenInfo() async throws -> (login: String, scopes: [String]?) {
+        let (data, resp) = try await URLSession.shared.data(for: request("/user"))
+        guard let http = resp as? HTTPURLResponse else { throw GitHubError(message: "No HTTP response") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw GitHubError(message: http.statusCode == 401
+                ? "401 Unauthorized — token invalid or expired"
+                : "HTTP \(http.statusCode)")
+        }
+        let user = try JSONDecoder.gh.decode(GHUser.self, from: data)
+        let header = http.value(forHTTPHeaderField: "X-OAuth-Scopes")
+        let scopes = header.map {
+            $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+        return (user.login, scopes)
+    }
+
     /// Look up the most recent PR for a branch — used by the worktree sweeper
     /// to decide whether a stranded `<repo>--<slug>` directory can be reaped.
     /// `.notFound` means the branch never had a PR (or it was deleted).

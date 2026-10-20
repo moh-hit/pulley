@@ -11,6 +11,9 @@ final class Store: ObservableObject {
     @Published var lastSync: Date? = nil
     /// First name (or login) for the main window's greeting. Fetched once.
     @Published var viewerName: String? = nil
+    /// Set to ask the main window to open Settings on a section (from the
+    /// popover, menus or shortcuts); the window clears it once shown.
+    @Published var settingsRequest: SettingsSection? = nil
     /// Contribution graph for Home. Refreshed at most hourly, cached on disk.
     @Published var contributions: ContributionCalendar? = nil
     private var contributionsFetchedAt: Date? = nil
@@ -136,8 +139,10 @@ final class Store: ObservableObject {
     func startTimer() {
         guard !isMockData else { return }
         timer?.invalidate()
-        // Auto-sync every 30 minutes (manual sync still available via the button)
-        timer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
+        // Auto-sync on the interval set in Settings (30 min by default); manual
+        // sync is always available. Settings calls this again on change.
+        let interval = TimeInterval(max(5, Config.syncIntervalMinutes) * 60)
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in self.sync() }
         }
