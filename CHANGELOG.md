@@ -37,6 +37,10 @@ to settings shape or filesystem layout.
   primary action. Statuses, waiting states (behind base, blocked, CI
   running), passing checks and Inbox reasons are neutral gray; the
   per-repo color dots and colored status pills are gone.
+- The menu-bar popover follows the same rule: gray section dots and
+  status pills except for changes requested, gray waiting states and
+  pending checks, a neutral wordmark, and a red (not orange) sync-error
+  banner.
 
 ### Fixed
 - The detail pane no longer keeps showing a pull request after a filter

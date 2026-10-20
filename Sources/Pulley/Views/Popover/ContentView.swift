@@ -52,7 +52,7 @@ struct ContentView: View {
                 return Section(
                     id: "status:\(status.rawValue)",
                     title: statusLabel(status),
-                    accent: statusColor(status),
+                    accent: status == .changes ? .red : Color.secondary.opacity(0.65),
                     prs: list
                 )
             }
@@ -213,7 +213,7 @@ private struct HeaderView: View {
             Text("PULLEY")
                 .font(Theme.mono(11, .semibold))
                 .tracking(1)
-                .foregroundColor(.accentColor)
+                .foregroundColor(.primary)
 
             if !store.prs.isEmpty {
                 Text("·").foregroundColor(.secondary)
@@ -291,7 +291,7 @@ private struct SyncErrorBanner: View {
     var body: some View {
         HStack(spacing: 7) {
             Icon("exclamationmark.triangle.fill", size: 10)
-                .foregroundColor(.orange)
+                .foregroundColor(.red)
             Text("Couldn't refresh pull requests")
                 .font(Theme.ui(11, .medium))
                 .foregroundColor(.primary)
@@ -302,7 +302,7 @@ private struct SyncErrorBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(Color.orange.opacity(0.09))
+        .background(Color.red.opacity(0.07))
         .help(message)
     }
 }
@@ -952,11 +952,11 @@ private struct StatusInline: View {
     var body: some View {
         Text(statusLabel(status).lowercased())
             .font(Theme.mono(10, .medium))
-            .foregroundColor(statusColor(status).opacity(0.88))
+            .foregroundColor(status == .changes ? .red : .secondary)
             .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Capsule().fill(statusColor(status).opacity(0.09)))
+            .background(Capsule().fill(Color.primary.opacity(0.055)))
             .fixedSize()
             .help(statusLabel(status))
     }
@@ -983,11 +983,8 @@ private struct MergeableChip: View {
 
     private var glyph: String { mergeableGlyph(state) }
     private var color: Color {
-        switch state {
-        case .dirty, .blocked, .unstable: return .red
-        case .behind:                     return .orange
-        default:                          return .secondary
-        }
+        // Only conflicts block the author outright; the rest are waiting states.
+        state == .dirty ? .red : .secondary
     }
 
     private var helpText: String {
@@ -1040,11 +1037,7 @@ private extension GroupBy {
 /// neutral, and absent checks remain distinguishable by glyph without adding
 /// another persistent accent to every row.
 private func popoverCheckColor(_ status: CheckStatus) -> Color {
-    switch status {
-    case .failure: return .red
-    case .pending: return .orange
-    case .success, .neutral, .none: return .secondary
-    }
+    status == .failure ? .red : .secondary
 }
 
 private func statusLabel(_ s: PRStatus) -> String {
