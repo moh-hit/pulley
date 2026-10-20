@@ -534,35 +534,37 @@ struct PRDetailPane: View {
         }
     }
 
+    /// One quiet line of state instead of a row of pills: the sidebar, list
+    /// chip and left edge already carry status, so here it's context. Only
+    /// blockers are red.
     private var statusRow: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) {
-                StatusBadge(text: pr.status.label, color: pr.status == .changes ? .red : .secondary, filled: false)
-                if pr.isDraft {
-                    StatusBadge(text: "draft", color: .secondary, filled: false)
-                }
-                if pr.checkStatus != .none {
-                    StatusBadge(
-                        text: "CI · \(pr.checkStatus.label)",
-                        color: pr.checkStatus == .failure ? .red : .secondary,
-                        filled: false
-                    )
-                }
-                if pr.mergeableState.isActionable {
-                    StatusBadge(
-                        text: pr.mergeableState.label,
-                        color: pr.mergeableState == .dirty ? .red : .secondary,
-                        filled: false
-                    )
-                }
-                Spacer(minLength: 8)
-                diffStat
-            }
-            Text("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(Theme.mono(11))
-                .foregroundColor(.secondary.opacity(0.7))
-                .lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            statusText
+                .font(Theme.ui(12))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+            Spacer(minLength: 8)
+            diffStat
         }
+    }
+
+    private var statusText: Text {
+        var parts: [Text] = []
+        func part(_ text: String, red: Bool = false) {
+            parts.append(Text(text).foregroundColor(red ? .red : .secondary))
+        }
+        part(pr.status.label, red: pr.status == .changes)
+        if pr.isDraft { part("Draft") }
+        if pr.checkStatus != .none {
+            part("CI \(pr.checkStatus.label)", red: pr.checkStatus == .failure)
+        }
+        if pr.mergeableState.isActionable {
+            part(pr.mergeableState.label.capitalizedFirst, red: pr.mergeableState == .dirty)
+        }
+        part("Updated \(relativeTime(pr.updatedAt)) ago")
+        let dot = Text("  ·  ").foregroundColor(.secondary.opacity(0.6))
+        return parts.dropFirst().reduce(parts[0]) { $0 + dot + $1 }
     }
 
     private var totalAdditions: Int { files.reduce(0) { $0 + $1.additions } }
@@ -599,7 +601,7 @@ struct PRDetailPane: View {
                 title: "Open in \(Config.preferredIDE.displayName)",
                 systemImage: Config.preferredIDE.fallbackSymbol,
                 nsImage: Config.preferredIDE.icon,
-                style: .primary
+                style: mergeIsTheMoment ? .secondary : .primary
             ) {
                 MainActor.assumeIsolated {
                     PRActions.checkoutAndOpen(pr: pr)
@@ -618,16 +620,6 @@ struct PRDetailPane: View {
             }
             .help("Open PR in browser")
 
-            if !pr.branch.isEmpty {
-                DetailActionButton(
-                    title: "Copy branch",
-                    systemImage: "doc.on.doc",
-                    style: .secondary
-                ) {
-                    PRActions.copyToPasteboard(pr.branch)
-                }
-                .help("Copy branch name")
-            }
 
         }
         // Merge errors surface here since the merge button lives in this row
@@ -701,7 +693,8 @@ struct PRDetailPane: View {
                 title: "Merge when ready",
                 help: queued
                     ? "Add to the merge queue automatically once requirements pass"
-                    : "Merge automatically once checks and reviews pass"
+                    : "Merge automatically once checks and reviews pass",
+                ready: false
             )
             .confirmationDialog(
                 "Merge \(pr.repo)#\(String(pr.number)) when ready?",
@@ -753,11 +746,17 @@ struct PRDetailPane: View {
         }
     }
 
-    private func mergeFlowButton(title: String, help: String) -> some View {
+    /// Ready to merge (or queue) right now — the one moment merge is the
+    /// loudest control on the page.
+    private var mergeIsTheMoment: Bool {
+        pr.mergeAction == .merge || pr.mergeAction == .enqueue
+    }
+
+    private func mergeFlowButton(title: String, help: String, ready: Bool = true) -> some View {
         DetailActionButton(
             title: title,
             systemImage: inflightAction == .merge ? "hourglass" : "arrow.triangle.merge",
-            style: .merge
+            style: ready ? .merge : .secondary
         ) {
             showMergeConfirm = true
         }

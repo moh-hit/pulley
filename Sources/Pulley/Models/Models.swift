@@ -151,7 +151,7 @@ enum PRStatus: String, Codable, CaseIterable, Hashable {
         switch self {
         case .open:     return "Open"
         case .review:   return "In review"
-        case .changes:  return "Changes req."
+        case .changes:  return "Changes requested"
         case .approved: return "Approved"
         }
     }
@@ -471,7 +471,9 @@ struct PR: Identifiable, Hashable, Codable {
     var mergeAction: MergeAction {
         if let entry = merge?.queueEntry { return .queued(entry) }
         if let auto = merge?.autoMerge { return .autoMergeEnabled(auto) }
-        guard !isDraft, mergeableState != .dirty, checkStatus != .failure else { return .none }
+        // Changes requested is a blocker: don't dangle a merge button on it.
+        guard !isDraft, mergeableState != .dirty, checkStatus != .failure, status != .changes
+        else { return .none }
 
         if let m = merge, m.mergeQueueEnabled {
             // The queue re-tests against the latest base, so `behind` is fine;
