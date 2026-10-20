@@ -71,8 +71,10 @@ jobs:
       - name: Build, sign, notarize, staple DMG
         env:
           PULLEY_NOTARY_PROFILE: pulley-notary
-          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: ./release.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Smoke-test launch
+        run: ./smoke-launch.sh Pulley.app
 
       - name: Extract release notes from CHANGELOG.md
         run: |
@@ -97,3 +99,12 @@ jobs:
           fail_on_unmatched_files: true
           body_path: .release-notes.md
           generate_release_notes: true
+
+      # After publishing, so a tap failure turns the run red without
+      # holding back the release itself.
+      - name: Update Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          ./update-tap.sh "$VERSION" "dist/Pulley-$VERSION.dmg"

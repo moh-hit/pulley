@@ -257,40 +257,21 @@ rm -rf "$STAGING"
 
 # ------------------------------------------------------------------
 # Update the Homebrew tap cask with the new version + SHA256.
-# Clones moh-hit/homebrew-tap into a temp dir, patches Casks/pulley.rb,
-# commits, and pushes. Skipped if gh is unavailable or the push fails.
+# In CI the release workflow runs ./update-tap.sh as its own step after the
+# GitHub release is published (so the DMG URL resolves and a failure shows
+# red). Locally it's best-effort: a failure must not abort an
+# already-notarized release.
 # ------------------------------------------------------------------
-TAP_REPO="moh-hit/homebrew-tap"
-TAP_CASK="Casks/pulley.rb"
-
-if command -v gh &>/dev/null && gh auth status &>/dev/null; then
-    echo "→ Computing SHA256 for Homebrew cask"
-    DMG_SHA256="$(shasum -a 256 "$DMG_FINAL" | awk '{print $1}')"
-
-    TAP_DIR="$(mktemp -d)"
-    trap 'rm -rf "$TAP_DIR"' EXIT
-
-    echo "→ Updating Homebrew tap ($TAP_REPO)"
-    # Tap update is best-effort: a missing token, stale cask layout, or
-    # transient git/gh failure must not abort an already-notarized release.
-    if ! ( set -e
-        gh repo clone "$TAP_REPO" "$TAP_DIR" -- -q
-        sed -i '' \
-            -e "s/version \".*\"/version \"$VERSION\"/" \
-            -e "s/sha256 \".*\"/sha256 \"$DMG_SHA256\"/" \
-            "$TAP_DIR/$TAP_CASK"
-        git -C "$TAP_DIR" add "$TAP_CASK"
-        git -C "$TAP_DIR" commit -m "chore: bump Pulley to $VERSION" -q
-        git -C "$TAP_DIR" push -q
-    ); then
+if [[ -n "${CI:-}" ]]; then
+    echo "→ Homebrew tap: left to the release workflow's Update Homebrew tap step"
+elif command -v gh &>/dev/null && gh auth status &>/dev/null; then
+    if ! "$HERE/update-tap.sh" "$VERSION" "$DMG_FINAL"; then
         echo "WARNING: Homebrew tap update failed — release is still complete." >&2
-        echo "         Run manually: update $TAP_CASK with version $VERSION (sha256: $DMG_SHA256)" >&2
-    else
-        echo "→ Homebrew tap updated (sha256: $DMG_SHA256)"
+        echo "         Retry: ./update-tap.sh $VERSION $DMG_FINAL" >&2
     fi
 else
     echo "WARNING: gh unavailable or unauthenticated — skipping Homebrew tap update." >&2
-    echo "         Run manually: update $TAP_CASK with version $VERSION" >&2
+    echo "         Run: ./update-tap.sh $VERSION $DMG_FINAL" >&2
 fi
 
 echo ""
