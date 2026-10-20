@@ -1325,12 +1325,22 @@ struct PRDetailPane: View {
                             .foregroundColor(.secondary.opacity(0.65))
                     }
                     .buttonStyle(.borderless)
+                    .help("Open \(c.name) on GitHub")
+                    .accessibilityLabel("Open \(c.name) on GitHub")
                 }
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 4)
             .contentShape(Rectangle())
             .onTapGesture {
+                guard expandable else { return }
+                withAnimation(.easeOut(duration: 0.12)) { toggleCheckDetails(c) }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("\(c.name), \(c.rolled.label)")
+            .accessibilityValue(expandable ? (expanded ? "expanded" : "collapsed") : "")
+            .accessibilityAddTraits(expandable ? .isButton : [])
+            .accessibilityAction {
                 guard expandable else { return }
                 withAnimation(.easeOut(duration: 0.12)) { toggleCheckDetails(c) }
             }
@@ -2005,6 +2015,7 @@ private struct FileDiffScreen: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Open this file on GitHub")
+                    .accessibilityLabel("Open this file on GitHub")
                 }
             }
             .padding(.horizontal, 20)
@@ -2338,6 +2349,7 @@ private struct DiffLineRow: View {
         }
         .buttonStyle(.plain)
         .help(hasDraft ? "Edit draft comment" : "Add draft comment")
+        .accessibilityLabel(hasDraft ? "Edit draft comment" : "Add draft comment")
         .opacity(isCommentable && (hovered || hasDraft) ? 1 : 0)
         .allowsHitTesting(isCommentable && (hovered || hasDraft))
         .frame(width: 28, alignment: .trailing)
@@ -2582,6 +2594,7 @@ private struct InlineDraftCommentEditor: View {
                     }
                     .buttonStyle(.plain)
                     .help("Discard draft comment")
+                    .accessibilityLabel("Discard draft comment")
                 }
 
                 TextField("Leave an inline comment…", text: $text, axis: .vertical)
@@ -2686,6 +2699,13 @@ private struct PostedCommentRow: View {
             withAnimation(.easeOut(duration: 0.12)) { botExpanded.toggle() }
         }
         .help(collapsed ? "Show bot comment" : "")
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(comment.isBot ? .isButton : [])
+        .accessibilityValue(comment.isBot ? (botExpanded ? "expanded" : "collapsed") : "")
+        .accessibilityAction {
+            guard comment.isBot else { return }
+            withAnimation(.easeOut(duration: 0.12)) { botExpanded.toggle() }
+        }
     }
 
     /// First non-empty line of the body, minus Markdown heading/emphasis

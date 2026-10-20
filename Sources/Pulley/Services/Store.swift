@@ -61,6 +61,7 @@ final class Store: ObservableObject {
             prs = MockData.prs
             lastSync = Date().addingTimeInterval(-60)
             viewerName = "Mohit"
+            notifications = MockData.inbox
             lastError = MockData.initialError
         } else {
             loadCache()

@@ -128,6 +128,7 @@ private struct InboxRow: View {
                         }
                         .buttonStyle(.plain)
                         .help("Mark as read")
+                        .accessibilityLabel("Mark as read")
                     }
 
                     Text(relativeTime(thread.updatedAt))
@@ -151,6 +152,17 @@ private struct InboxRow: View {
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture { onOpen() }
+        // "Mark as read" shows only on hover, so it also lives on the context
+        // menu and as a VoiceOver action.
+        .contextMenu {
+            Button("Open on GitHub", action: onOpen)
+            if thread.unread { Button("Mark as read", action: onMarkRead) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(thread.title), \(thread.repo), \(thread.reasonLabel)\(thread.unread ? ", unread" : "")")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen() }
+        .accessibilityAction(named: "Mark as read") { onMarkRead() }
     }
 
     private var rowBackground: Color {

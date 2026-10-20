@@ -199,6 +199,7 @@ struct SidebarItem: View {
         .modifier(OptionalShortcut(key: shortcut))
         .help(collapsed ? title + (count.map { $0 > 0 ? " · \($0)" : "" } ?? "") : "")
         .accessibilityLabel(title)
+        .accessibilityValue(count.map { $0 > 0 ? "\($0)" : "" } ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 

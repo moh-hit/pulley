@@ -114,6 +114,24 @@ enum MockData {
         1207: StackInfo(number: 41, size: 3, position: 3),
     ]
 
+    /// A few notifications so the Inbox has something to show.
+    static var inbox: [InboxThread] {
+        let now = Date()
+        func thread(_ id: String, _ title: String, _ type: String, _ reason: String,
+                    _ repo: String, minutesAgo: Int, unread: Bool = true) -> InboxThread {
+            InboxThread(
+                id: id, title: title, type: type, reason: reason, org: "acme", repo: repo,
+                updatedAt: now.addingTimeInterval(TimeInterval(-60 * minutesAgo)),
+                unread: unread, url: URL(string: "https://example.com/acme/\(repo)")
+            )
+        }
+        return [
+            thread("t1", "Fix race in webhook retry queue", "PullRequest", "review_requested", "api", minutesAgo: 12),
+            thread("t2", "Support passkeys during sign in", "PullRequest", "mention", "mobile", minutesAgo: 95),
+            thread("t3", "Dependency audit failed on main", "Issue", "security_alert", "web", minutesAgo: 340),
+        ]
+    }
+
     /// Placeholder PR description so previews show a rendered body.
     static func description(for pr: PR) -> String {
         """
@@ -205,5 +223,6 @@ enum MockData {
     }
     static func stackEntries(for pr: PR) -> [StackEntry] { [] }
     static func description(for pr: PR) -> String { "" }
+    static var inbox: [InboxThread] { [] }
     #endif
 }

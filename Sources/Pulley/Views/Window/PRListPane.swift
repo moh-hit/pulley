@@ -213,6 +213,19 @@ private struct WindowPRRow: View {
         .clipped()
         .onHover { hovered = $0 }
         .onTapGesture { onSelect() }
+        // VoiceOver: one button per row, named by what it is, with its own
+        // row actions still reachable inside it.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(rowAccessibilityLabel)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { onSelect() }
+    }
+
+    private var rowAccessibilityLabel: String {
+        var parts = [pr.title, "\(pr.repo) number \(pr.number)", pr.status.label]
+        if let attention = RowAttention(pr: pr) { parts.append(attention.label) }
+        parts.append("updated \(relativeTime(pr.updatedAt)) ago")
+        return parts.joined(separator: ", ")
     }
 
     private var statusBar: some View {
@@ -373,6 +386,7 @@ private struct RowIconButton: View {
         .onHover { hovered = $0 }
         .disabled(disabled)
         .help(help)
+        .accessibilityLabel(help)
     }
 
     private var foreground: Color {

@@ -315,6 +315,7 @@ private struct FilterRow: View {
                     }
                     .buttonStyle(.plain)
                     .help("Clear search")
+                    .accessibilityLabel("Clear search")
                 }
             }
             .padding(.horizontal, 8)
@@ -603,6 +604,7 @@ private struct PRRow: View {
                 }
                 .buttonStyle(.plain)
                 .help(isExpanded ? "Collapse PR" : "Show PR actions")
+                .accessibilityLabel(isExpanded ? "Collapse PR" : "Show PR actions")
                 .opacity(disclosureVisible ? 1 : 0)
                 .allowsHitTesting(disclosureVisible)
                 .animation(.easeOut(duration: 0.1), value: disclosureVisible)
@@ -752,6 +754,7 @@ private struct QuickCopyButton: View {
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .help(help)
+        .accessibilityLabel(help)
     }
 }
 

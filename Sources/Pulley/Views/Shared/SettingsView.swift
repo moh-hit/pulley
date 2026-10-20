@@ -128,6 +128,7 @@ struct SettingsView: View {
                                         .buttonStyle(.plain)
                                         .disabled(orgs.count == 1)
                                         .help("Remove")
+                                        .accessibilityLabel("Remove")
                                     }
                                 }
                                 Button {
@@ -319,6 +320,7 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .help(infoActive ? "Hide token setup guide" : "How do I create a token?")
+                    .accessibilityLabel(infoActive ? "Hide token setup guide" : "How do I create a token?")
                 }
             }
             content()
@@ -368,6 +370,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Hide guide")
+                .accessibilityLabel("Hide guide")
             }
 
             Group {
