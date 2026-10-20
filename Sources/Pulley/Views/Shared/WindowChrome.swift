@@ -154,7 +154,7 @@ struct MergeFlowChip: View {
             chip(
                 icon: "list.number",
                 text: entry.position <= 1 ? "queued · next" : "queued · #\(entry.position)",
-                tint: entry.state == "UNMERGEABLE" ? .orange : mergePurple,
+                tint: entry.state == "UNMERGEABLE" ? .red : mergePurple,
                 help: "In the merge queue — \(entry.summary)"
             )
         } else if let auto = pr.merge?.autoMerge {

@@ -295,16 +295,12 @@ struct PRDetailPane: View {
                     Text("Add a review")
                         .font(Theme.ui(12, .medium))
                 }
-                .foregroundColor(.accentColor)
+                .foregroundColor(.primary)
                 .padding(.horizontal, 13)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.12))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.accentColor.opacity(0.3), lineWidth: 0.7)
+                        .fill(Theme.chrome.opacity(0.7))
                 )
                 .contentShape(Rectangle())
             }
@@ -342,7 +338,7 @@ struct PRDetailPane: View {
                 ProgressView().controlSize(.small).scaleEffect(0.7)
                 if copilotLooksStuck {
                     Text("No review from Copilot yet")
-                        .foregroundColor(.orange)
+                        .foregroundColor(.secondary)
                         .help("GitHub accepted the request, but Copilot hasn't answered. Check that Copilot code review is enabled for you on this repo's org.")
                 } else {
                     Text("Copilot is reviewing…")
@@ -528,7 +524,7 @@ struct PRDetailPane: View {
                     .truncationMode(.middle)
                 Text("#\(String(pr.number))")
                     .font(Theme.mono(12, .semibold))
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(.secondary)
                     .fixedSize()
                 if !pr.branch.isEmpty {
                     BranchPill(branch: pr.branch)
@@ -541,21 +537,21 @@ struct PRDetailPane: View {
     private var statusRow: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                StatusBadge(text: pr.status.label, color: statusColor(pr.status), filled: true)
+                StatusBadge(text: pr.status.label, color: pr.status == .changes ? .red : .secondary, filled: false)
                 if pr.isDraft {
                     StatusBadge(text: "draft", color: .secondary, filled: false)
                 }
                 if pr.checkStatus != .none {
                     StatusBadge(
                         text: "CI · \(pr.checkStatus.label)",
-                        color: checkColor(pr.checkStatus),
+                        color: pr.checkStatus == .failure ? .red : .secondary,
                         filled: false
                     )
                 }
                 if pr.mergeableState.isActionable {
                     StatusBadge(
                         text: pr.mergeableState.label,
-                        color: mergeableColor(pr.mergeableState),
+                        color: pr.mergeableState == .dirty ? .red : .secondary,
                         filled: false
                     )
                 }
@@ -865,7 +861,7 @@ struct PRDetailPane: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Icon("text.bubble.fill", size: 11)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(.secondary)
                 Text("\(readyDraftComments.count) inline draft\(readyDraftComments.count == 1 ? "" : "s") ready")
                     .font(Theme.ui(12, .semibold))
                     .foregroundColor(.primary)
@@ -1307,7 +1303,7 @@ struct PRDetailPane: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
                 Icon(checkGlyph(c.rolled), size: 12)
-                    .foregroundColor(checkColor(c.rolled))
+                    .foregroundColor(c.rolled == .failure ? .red : .secondary)
                     .frame(width: 16)
                 Text(c.name)
                     .font(Theme.ui(13))
@@ -2117,7 +2113,7 @@ private struct DiffPatchView: View {
                 ForEach(hunks) { hunk in
                     Text(hunk.header)
                         .font(Theme.mono(11))
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(.secondary)
                         .padding(.vertical, 3)
                         .padding(.horizontal, 8)
                         .frame(width: contentWidth, alignment: .leading)
@@ -2567,7 +2563,7 @@ private struct InlineDraftCommentEditor: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Icon("text.bubble", size: 12)
-                .foregroundColor(.accentColor)
+                .foregroundColor(.secondary)
                 .frame(width: 18)
                 .padding(.top, 10)
 
@@ -2858,7 +2854,7 @@ private struct StackEntryChip: View {
         switch entry.state {
         case "MERGED": return mergePurple
         case "CLOSED": return .secondary
-        default:       return .green
+        default:       return .secondary
         }
     }
 }

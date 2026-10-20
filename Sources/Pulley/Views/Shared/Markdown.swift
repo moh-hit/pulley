@@ -188,7 +188,7 @@ struct MarkdownView: View {
         for run in attr.runs {
             if run.inlinePresentationIntent?.contains(.code) == true {
                 attr[run.range].backgroundColor = Color.primary.opacity(0.1)
-                attr[run.range].foregroundColor = Color(red: 0.82, green: 0.36, blue: 0.45)
+                attr[run.range].foregroundColor = Color.primary
             }
             if run.link != nil {
                 attr[run.range].foregroundColor = Color.accentColor

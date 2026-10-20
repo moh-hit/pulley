@@ -31,6 +31,12 @@ to settings shape or filesystem layout.
   conflicts, failing CI, merge queue, auto-merge, blocked, behind base,
   running CI or draft, in that order. Review status stays on the colored
   edge; branch and check details are in the detail pane.
+- **Fewer colors in the main window.** Color now means "act on this":
+  red only for what blocks a PR (changes requested, conflicts, failing
+  CI), purple only for the merge flow, blue only for selection and the
+  primary action. Statuses, waiting states (behind base, blocked, CI
+  running), passing checks and Inbox reasons are neutral gray; the
+  per-repo color dots and colored status pills are gone.
 
 ### Fixed
 - The detail pane no longer keeps showing a pull request after a filter

@@ -113,14 +113,9 @@ struct PRListPane: View {
     }
 
     private func groupAccent(_ group: PRGroup) -> Color {
-        switch groupMode {
-        case .none:
-            return .accentColor
-        case .status:
-            return group.prs.first.map { statusColor($0.status) } ?? .accentColor
-        case .repo, .org:
-            return colorForRepo(group.label)
-        }
+        // Neutral headers; only the changes-requested group is red.
+        if groupMode == .status, group.prs.first?.status == .changes { return .red }
+        return .secondary.opacity(0.6)
     }
 
     private func groupedPRs() -> [PRGroup] {
@@ -213,8 +208,9 @@ private struct WindowPRRow: View {
     }
 
     private var statusBar: some View {
+        // Only PRs waiting on changes get an edge — everything else is calm.
         Rectangle()
-            .fill(statusColor(pr.status))
+            .fill(pr.status == .changes ? Color.red : Color.clear)
             .frame(width: 3)
             .opacity(isSelected ? 1 : (statusEmphasized ? 0.85 : 0.6))
     }
@@ -285,9 +281,6 @@ private struct WindowPRRow: View {
 
     private var repoLabel: some View {
         HStack(spacing: 4) {
-            Circle()
-                .fill(colorForRepo(pr.repo))
-                .frame(width: 6, height: 6)
             (Text(pr.org + "/").foregroundColor(.secondary.opacity(0.6))
              + Text(pr.repo).foregroundColor(.secondary))
                 .font(Theme.mono(11, .regular))
@@ -400,11 +393,11 @@ struct RowAttention {
         } else if pr.merge?.autoMerge != nil {
             self.init("Auto-merge", "clock.arrow.circlepath", mergePurple, "Merges once requirements pass")
         } else if pr.mergeableState == .blocked {
-            self.init("Blocked", "lock.fill", .orange, "Blocked by required reviews or branch protection")
+            self.init("Blocked", "lock.fill", .secondary, "Blocked by required reviews or branch protection")
         } else if pr.mergeableState == .behind {
-            self.init("Behind base", "arrow.down.circle.fill", .orange, "Base branch has moved ahead")
+            self.init("Behind base", "arrow.down.circle.fill", .secondary, "Base branch has moved ahead")
         } else if pr.checkStatus == .pending {
-            self.init("CI running", "clock.fill", .orange, "Checks still running")
+            self.init("CI running", "clock.fill", .secondary, "Checks still running")
         } else if pr.isDraft {
             self.init("Draft", "circle.dashed", .secondary, "Draft pull request")
         } else {

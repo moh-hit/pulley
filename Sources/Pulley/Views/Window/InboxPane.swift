@@ -85,24 +85,12 @@ private struct InboxRow: View {
     }
 
     private var typeTint: Color {
-        switch thread.type {
-        case "PullRequest": return .accentColor
-        case "Issue":       return .green
-        case "Discussion":  return .purple
-        case "Release":     return .orange
-        default:            return .secondary
-        }
+        .secondary
     }
 
     private var reasonTint: Color {
-        switch thread.reason {
-        case "mention", "team_mention": return .yellow
-        case "review_requested":         return .orange
-        case "author", "assign":         return .accentColor
-        case "ci_activity":              return .secondary
-        case "security_alert":           return .red
-        default:                         return .secondary
-        }
+        // Only security alerts are a problem; every other reason is context.
+        thread.reason == "security_alert" ? .red : .secondary
     }
 
     var body: some View {
@@ -182,9 +170,6 @@ private struct InboxRow: View {
 
     private var repoLabel: some View {
         HStack(spacing: 4) {
-            Circle()
-                .fill(colorForRepo(thread.repo))
-                .frame(width: 6, height: 6)
             (Text(thread.org + "/").foregroundColor(.secondary.opacity(0.6))
              + Text(thread.repo).foregroundColor(.secondary))
                 .font(Theme.mono(11, .regular))

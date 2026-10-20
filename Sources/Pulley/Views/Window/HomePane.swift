@@ -245,7 +245,9 @@ private struct ActivityRow: View {
                 }
                 Spacer(minLength: 8)
                 MergeFlowChip(pr: pr)
-                StatusBadge(text: pr.status.label, color: statusColor(pr.status), filled: false)
+                Text(pr.status.label)
+                    .font(Theme.ui(12))
+                    .foregroundColor(pr.status == .changes ? .red : .secondary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)

@@ -75,7 +75,6 @@ struct SidebarView: View {
             SidebarItem(
                 title: "Inbox", icon: "bell",
                 count: store.unreadInboxCount,
-                countTint: store.unreadInboxCount > 0 ? .accentColor : nil,
                 isSelected: section == .inbox, collapsed: collapsed, shortcut: "7"
             ) { section = .inbox }
 
