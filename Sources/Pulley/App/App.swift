@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var outsideClickMonitor: Any?
     private var keyMonitor: Any?
     private var mainWindow: MainWindowController?
+    private var appearanceObservation: NSKeyValueObservation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         BundledFonts.register()
@@ -91,6 +92,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentSize = NSSize(width: 460, height: 520)
         let host = NSHostingController(rootView: ContentView().environmentObject(store))
         popover.contentViewController = host
+        // A popover takes its look from the view it hangs off — the status
+        // item, i.e. the menu bar — which ignores the app's Light/Dark
+        // setting. Pin it to the app's effective appearance so it matches the
+        // main window, and follows Settings and system changes live.
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] app, _ in
+            MainActor.assumeIsolated { self?.popover.appearance = app.effectiveAppearance }
+        }
 
         store.$prs
             .receive(on: RunLoop.main)

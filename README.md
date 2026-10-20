@@ -5,8 +5,9 @@
 <h1 align="center">Pulley</h1>
 
 <p align="center">
-  A tiny macOS menu-bar app that keeps your GitHub pull requests one click away —
-  and checks each branch out as a git worktree so your main checkout stays clean.
+  Your GitHub pull requests, one click from the Mac menu bar, plus a calm main
+  window built around what needs you. Checks each branch out as a git worktree
+  so your main checkout stays clean.
 </p>
 
 <p align="center">
@@ -22,22 +23,41 @@
 ---
 
 <p align="center">
-  <img src="assets/screenshot-list.png" alt="PR list" width="380">
-  &nbsp;&nbsp;
-  <img src="assets/screenshot-detail.png" alt="PR detail" width="380">
+  <img src="assets/screenshot-hero.jpg" alt="Pulley's menu-bar popover over the main window's Home page">
 </p>
 
 ---
 
 ## Features
 
-- **Live PR list** across one or many GitHub orgs, filtered by authored / review-requested / involves / assigned.
-- **Grouped views** — by review status, repo, or org.
-- **Open in IDE** — one click creates a sibling git worktree so your main checkout is untouched.
-- **Merge from Pulley** — squash, merge commit, or rebase (only what the repo allows), **merge when ready** via auto-merge, and **merge queue** support with live queue position.
-- **Multi-org** with per-org coloring and `org/repo` chips when repo names collide.
-- **Token stored in Keychain**, never on disk.
-- **Menu bar plus a main window** — a sidebar with Home, PR filters, Inbox and organizations (collapsible to an icon rail), and a Home page summarizing what needs you.
+**In the menu bar**
+
+- **Every PR at a glance** across one or many GitHub orgs: changes requested, CI failing, conflicts, behind base, ready to merge.
+- **Grouped your way**: by status, repo or org, and filtered to authored / review-requested / involves / assigned.
+- **Keyboard-first**: `j`/`k` to move, `↩` to open on GitHub, `o` to open in your IDE, `c` to copy the branch. A global hotkey opens it from anywhere.
+- **Notifications** for the changes you pick: new PRs, approvals and change requests, CI results, merge conflicts, merge queue and auto-merge.
+
+**In the main window**
+
+- **Home** shows what's waiting on you, what's ready to merge and what's failing, next to your GitHub contribution graph.
+- **A sidebar** with your PR filters and live counts, your Inbox, and one entry per organization. It collapses to an icon rail.
+- **PR detail** with description, checks and files. Re-run failed checks, add a review, or ask Copilot to review.
+
+**Merging, without the browser**
+
+- Squash, merge commit or rebase (only what the repo allows), with a default you pick.
+- **Merge when ready** via auto-merge, and **merge queue** support with live queue position.
+- **Stacked PRs**: see where a PR sits in its stack and merge the whole stack in one click.
+
+**Everything else**
+
+- **Open in IDE**: one click checks the branch out as a git worktree beside your clone and opens it in VS Code, Cursor or Zed, so your main checkout stays untouched.
+- **Make it yours**: light or dark theme, text size, list density, start page, and what the menu-bar count means. Changes apply live.
+- **Your token stays in the Keychain**, never on disk.
+
+<p align="center">
+  <img src="assets/screenshot-window.jpg" alt="The main window: PR list with a stacked PR's detail and its Merge 2 PRs button">
+</p>
 
 ## Install
 
@@ -51,7 +71,7 @@ brew install moh-hit/tap/pulley
 
 Grab the latest `Pulley-<version>.dmg` from the [Releases page][releases], open it, and drag `Pulley.app` to `/Applications`.
 
-> The app is signed ad-hoc. On first launch right-click → **Open** → **Open** to clear the Gatekeeper prompt.
+Releases are signed with a Developer ID and notarized by Apple, so Pulley opens like any other app.
 
 [releases]: https://github.com/moh-hit/pulley/releases
 
@@ -68,29 +88,31 @@ open Pulley.app
 
 ## Configure
 
-Open the popover → gear → **Settings**.
+On first launch, open the popover and follow the prompt to Settings. Later, open Settings from the gear in the popover, the sidebar in the main window, or `⌘,`.
 
-| Field | Notes |
+| Section | What's there |
 | --- | --- |
-| Personal access token | Classic PAT or a fine-grained token (see below). Stored in Keychain. |
-| Organizations | One or more GitHub orgs. |
-| Default scope | authored / involves / review-requested / assigned. |
-| Preferred IDE | VS Code, Cursor, or Zed. |
-| Workspace base dir | Where Pulley looks for clones — tries `<base>/<repo>` then `<base>/<org>/<repo>`. |
-| Launch at login | Toggled via `SMAppService`. |
+| General | Launch at login, start page, sync interval, what the menu-bar count shows. |
+| Appearance | Theme, text size, list density, contribution graph, collapsing bot comments. |
+| GitHub | Personal access token (stored in Keychain, with a **Test connection** button) and your organizations. |
+| Pull requests | Which PRs to show, default merge method, Copilot review, the IDE to open in, and the workspace folder. |
+| Notifications | Turn each kind of notification on or off. |
+| Shortcuts | The global hotkey, plus a list of keyboard shortcuts. |
+
+**Workspace folder** is where your clones live. Pulley tries `<folder>/<repo>`, then `<folder>/<org>/<repo>`, and creates worktrees beside the clone.
 
 The token field has an **ⓘ** button with an in-app setup guide and one-click
 links to GitHub's token pages (the classic link pre-checks the scopes). For
 reference:
 
-- **Classic PAT** — scopes `repo`, `read:org`, and `notifications` (the last
+- **Classic PAT**: scopes `repo`, `read:org`, and `notifications` (the last
   enables the Inbox). Works for everything.
-- **Fine-grained token** — grant access to the orgs' repositories with
+- **Fine-grained token**: grant access to the orgs' repositories with
   **Pull requests: Read and write**, **Contents: Read and write** (merging, auto-merge, merge queue),
   **Checks: Read and write** (CI details + re-running individual checks),
   **Actions: Read and write** (re-running failed workflow jobs), and
   **Commit statuses: Read** (third-party CI). The Inbox isn't available on
-  fine-grained tokens — GitHub has no notifications permission for them — and
+  fine-grained tokens, since GitHub has no notifications permission for them, and
   is skipped gracefully.
 
 ## Contributing

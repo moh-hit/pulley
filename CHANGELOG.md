@@ -8,6 +8,16 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+### Fixed
+- **The popover now follows the Theme setting.** With Theme set to Light
+  or Dark, the menu-bar popover kept the menu bar's look instead (dark
+  popover, light window). It now matches the app and updates live when the
+  setting or the system appearance changes.
+
+### Changed
+- README: current screenshots, the full feature list, the new Settings
+  sections, and notarized-release install notes (no more right-click → Open).
+
 ## [1.11.0] - 2026-10-20
 
 ### Added
