@@ -10,7 +10,7 @@ struct StatusBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(Theme.mono(10, .semibold))
             .foregroundColor(filled ? .white : color)
             .lineLimit(1)
             .padding(.horizontal, 9)
@@ -33,10 +33,9 @@ struct BranchPill: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 10))
+            Icon("arrow.triangle.branch", size: 10)
             Text(branch)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(Theme.mono(11, .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -86,11 +85,10 @@ struct DetailActionButton: View {
                         .interpolation(.high)
                         .frame(width: 15, height: 15)
                 } else {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .semibold))
+                    Icon(systemImage, size: 11)
                 }
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Theme.ui(12, .medium))
                     .lineLimit(1)
                     .fixedSize()
             }
@@ -156,7 +154,7 @@ struct MergeFlowChip: View {
             chip(
                 icon: "list.number",
                 text: entry.position <= 1 ? "queued · next" : "queued · #\(entry.position)",
-                tint: entry.state == "UNMERGEABLE" ? .orange : mergePurple,
+                tint: entry.state == "UNMERGEABLE" ? .red : mergePurple,
                 help: "In the merge queue — \(entry.summary)"
             )
         } else if let auto = pr.merge?.autoMerge {
@@ -172,10 +170,9 @@ struct MergeFlowChip: View {
 
     private func chip(icon: String, text: String, tint: Color, help: String) -> some View {
         HStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.system(size: 9, weight: .semibold))
+            Icon(icon, size: 9)
             Text(text)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(Theme.mono(10, .medium))
                 .lineLimit(1)
         }
         .foregroundColor(tint)
@@ -194,10 +191,9 @@ struct StackChip: View {
     var body: some View {
         if let stack = pr.stack {
             HStack(spacing: 3) {
-                Image(systemName: "square.stack.3d.up")
-                    .font(.system(size: 9, weight: .semibold))
+                Icon("square.stack.3d.up", size: 9)
                 Text("\(stack.position)/\(stack.size)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(Theme.mono(10, .medium))
             }
             .foregroundColor(.secondary)
             .padding(.horizontal, 6)

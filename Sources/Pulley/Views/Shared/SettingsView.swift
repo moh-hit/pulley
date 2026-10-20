@@ -40,14 +40,13 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             // Top bar
             HStack(spacing: 10) {
-                Image(systemName: "gearshape.fill")
+                Icon("gearshape.fill", size: 14)
                     .foregroundColor(.accentColor)
                 Text("Settings")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(Theme.ui(14, .semibold))
                 Spacer()
                 Button(action: { onClose() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .medium))
+                    Icon("xmark", size: 11)
                         .foregroundColor(.secondary)
                         .frame(width: 22, height: 22)
                         .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.06)))
@@ -123,7 +122,7 @@ struct SettingsView: View {
                                             orgs.remove(at: i)
                                             if orgs.isEmpty { orgs = [""] }
                                         } label: {
-                                            Image(systemName: "minus.circle")
+                                            Icon("minus.circle", size: 13)
                                                 .foregroundColor(.secondary)
                                         }
                                         .buttonStyle(.plain)
@@ -135,7 +134,7 @@ struct SettingsView: View {
                                     orgs.append("")
                                 } label: {
                                     Label("Add organization", systemImage: "plus")
-                                        .font(.system(size: 11))
+                                        .font(Theme.ui(11))
                                 }
                                 .buttonStyle(.plain)
                                 .foregroundColor(.accentColor)
@@ -277,10 +276,9 @@ struct SettingsView: View {
     private func section<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
+                Icon(icon, size: 10)
                 Text(title)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(Theme.mono(10, .semibold))
                     .tracking(0.8)
             }
             .foregroundColor(.accentColor)
@@ -309,15 +307,14 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 3) {
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Theme.ui(11, .medium))
                     .foregroundColor(.primary)
                 if required {
-                    Text("*").foregroundColor(.red).font(.system(size: 11))
+                    Text("*").foregroundColor(.red).font(Theme.ui(11))
                 }
                 if let infoAction {
                     Button(action: infoAction) {
-                        Image(systemName: infoActive ? "info.circle.fill" : "info.circle")
-                            .font(.system(size: 11))
+                        Icon(infoActive ? "info.circle.fill" : "info.circle", size: 11)
                             .foregroundColor(.accentColor)
                     }
                     .buttonStyle(.plain)
@@ -330,7 +327,7 @@ struct SettingsView: View {
 
     private func caption(_ s: String) -> some View {
         Text(s)
-            .font(.system(size: 10))
+            .font(Theme.ui(10))
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -365,8 +362,7 @@ struct SettingsView: View {
                 Button {
                     withAnimation(Self.tokenHelpAnim) { showTokenHelp = false }
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                    Icon("xmark", size: 9)
                         .foregroundColor(.secondary)
                         .frame(width: 16, height: 16)
                 }
@@ -383,7 +379,7 @@ struct SettingsView: View {
             .animation(.easeInOut(duration: 0.16), value: tokenHelpKind)
 
             Text("Then paste it above and Save — stored only in your macOS Keychain.")
-                .font(.system(size: 9.5))
+                .font(Theme.ui(9.5))
                 .foregroundColor(.secondary.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -403,7 +399,7 @@ struct SettingsView: View {
     private var classicHelp: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Full access, including the Inbox. Scopes to tick:")
-                .font(.system(size: 10))
+                .font(Theme.ui(10))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 5) {
@@ -413,7 +409,7 @@ struct SettingsView: View {
             }
             createTokenButton("Open GitHub — scopes pre-filled", url: classicTokenURL)
             Text("`notifications` is optional — it powers the Inbox tab.")
-                .font(.system(size: 9.5))
+                .font(Theme.ui(9.5))
                 .foregroundColor(.secondary.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -422,19 +418,19 @@ struct SettingsView: View {
     private var fineGrainedHelp: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Per-repo access; no Inbox. Set these permissions:")
-                .font(.system(size: 10))
+                .font(Theme.ui(10))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 3) {
                 Text("**Read & write** — Pull requests, Contents, Checks, Actions")
                 Text("**Read** — Commit statuses")
             }
-            .font(.system(size: 10))
+            .font(Theme.ui(10))
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             createTokenButton("Open GitHub", url: fineGrainedTokenURL)
             Text("Under Repository access, pick the repos in your orgs. Metadata: Read is automatic.")
-                .font(.system(size: 9.5))
+                .font(Theme.ui(9.5))
                 .foregroundColor(.secondary.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -442,7 +438,7 @@ struct SettingsView: View {
 
     private func scopeChip(_ s: String) -> some View {
         Text(s)
-            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+            .font(Theme.mono(9.5, .semibold))
             .foregroundColor(.primary.opacity(0.85))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -454,10 +450,9 @@ struct SettingsView: View {
             PRActions.openInBrowser(url)
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "arrow.up.forward.square")
-                    .font(.system(size: 10, weight: .semibold))
+                Icon("arrow.up.forward.square", size: 10)
                 Text(title)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(Theme.ui(10.5, .medium))
             }
         }
         .controlSize(.small)
@@ -510,7 +505,7 @@ private struct HotkeyRecorder: View {
     var body: some View {
         Button(action: toggle) {
             Text(recording ? "Press combo…" : hotkey.display)
-                .font(.system(size: 12, weight: recording ? .semibold : .regular, design: .monospaced))
+                .font(Theme.mono(12, recording ? .semibold : .regular))
                 .foregroundColor(recording ? .accentColor : .primary)
                 .frame(minWidth: 110, alignment: .center)
                 .padding(.vertical, 5)
@@ -596,7 +591,7 @@ private struct IDETile: View {
                 .frame(width: 16, height: 16)
 
                 Text(ide.displayName)
-                    .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                    .font(Theme.ui(11, selected ? .semibold : .regular))
                     .foregroundColor(.primary)
             }
             .frame(maxWidth: .infinity)

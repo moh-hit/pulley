@@ -11,10 +11,16 @@ struct MarkdownView: View {
     var bodyDesign: Font.Design = .serif
     var bodySize: CGFloat = 14
 
-    private var bodyFont: Font  { .system(size: bodySize, design: bodyDesign) }
-    private var quoteFont: Font { .system(size: bodySize, design: bodyDesign).italic() }
-    private static let listFont   = Font.system(size: 13)
-    private static let codeFont   = Font.system(size: 12, design: .monospaced)
+    private var bodyFont: Font {
+        switch bodyDesign {
+        case .monospaced: return Theme.mono(bodySize)
+        // Instrument Serif is display-only; body copy reads better in Geist.
+        default:          return Theme.ui(bodySize)
+        }
+    }
+    private var quoteFont: Font { bodyFont.italic() }
+    private static let listFont   = Theme.ui(13)
+    private static let codeFont   = Theme.mono(12)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -71,7 +77,7 @@ struct MarkdownView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text("\(idx + 1).")
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .font(Theme.mono(12, .medium))
                             .foregroundColor(.secondary)
                         Text(inline(item))
                             .font(Self.listFont)
@@ -86,8 +92,7 @@ struct MarkdownView: View {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
-                        Image(systemName: item.0 ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 13))
+                        Icon(item.0 ? "checkmark.square.fill" : "square", size: 13)
                             .foregroundColor(item.0 ? .accentColor : .secondary.opacity(0.7))
                         Text(inline(item.1))
                             .font(Self.listFont)
@@ -105,7 +110,7 @@ struct MarkdownView: View {
                 if !lang.isEmpty {
                     HStack {
                         Text(lang.uppercased())
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .font(Theme.mono(9, .semibold))
                             .tracking(1.2)
                             .foregroundColor(.secondary)
                         Spacer()
@@ -167,7 +172,7 @@ struct MarkdownView: View {
         case 4: size = 13
         default: size = 12
         }
-        return .system(size: size, weight: level <= 2 ? .bold : .semibold)
+        return Theme.ui(size, level <= 2 ? .bold : .semibold)
     }
 
     private func inline(_ s: String) -> AttributedString {
@@ -183,7 +188,7 @@ struct MarkdownView: View {
         for run in attr.runs {
             if run.inlinePresentationIntent?.contains(.code) == true {
                 attr[run.range].backgroundColor = Color.primary.opacity(0.1)
-                attr[run.range].foregroundColor = Color(red: 0.82, green: 0.36, blue: 0.45)
+                attr[run.range].foregroundColor = Color.primary
             }
             if run.link != nil {
                 attr[run.range].foregroundColor = Color.accentColor

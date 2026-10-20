@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        BundledFonts.register()
         installEditMenu()
 
         store = Store()

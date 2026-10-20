@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreText
 
 // Shared presentation layer: the single source of truth for how model states
 // map to colors, glyphs, and human-friendly time strings. Both the popover
@@ -84,4 +85,79 @@ func relativeTime(_ date: Date) -> String {
     if d < 30      { return "\(d)d" }
     if d < 365     { return "\(d / 30)mo" }
     return "\(d / 365)y"
+}
+
+// MARK: - Main window theme
+
+/// Main-window surfaces: a warm neutral "chrome" behind the sidebar, with
+/// content on a raised panel. Adaptive so dark mode keeps the same shape.
+enum Theme {
+    static let chrome = adaptive(
+        light: NSColor(srgbRed: 0.953, green: 0.949, blue: 0.937, alpha: 1),
+        dark: NSColor(srgbRed: 0.106, green: 0.102, blue: 0.098, alpha: 1)
+    )
+    static let panel = adaptive(
+        light: .white,
+        dark: NSColor(srgbRed: 0.153, green: 0.149, blue: 0.145, alpha: 1)
+    )
+    static let hairline = Color.primary.opacity(0.08)
+    static let selection = Color.primary.opacity(0.07)
+    static let hover = Color.primary.opacity(0.04)
+
+    /// Instrument Serif — greetings, section titles and big numbers.
+    /// Display only: it has a single weight, so `weight` is ignored.
+    static func display(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        BundledFonts.font("InstrumentSerif-Regular", size: size, fallback: .system(size: size, design: .serif))
+    }
+
+    /// Geist — all interface text.
+    static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        BundledFonts.font("Geist-\(BundledFonts.instance(weight))", size: size, fallback: .system(size: size, weight: weight))
+    }
+
+    /// Geist Mono — branches, PR numbers, SHAs, timestamps and diffs.
+    static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        BundledFonts.font("GeistMono-\(BundledFonts.instance(weight))", size: size, fallback: .system(size: size, weight: weight, design: .monospaced))
+    }
+
+    private static func adaptive(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+        })
+    }
+}
+
+/// Fonts shipped in the resource bundle (Resources/Fonts, SIL OFL — see the
+/// *-OFL.txt files there): Geist, Geist Mono and Instrument Serif. They're
+/// registered for this process at launch; if that fails, every `Theme` font
+/// falls back to the matching system font rather than to Helvetica.
+enum BundledFonts {
+    private(set) static var registered = false
+
+    static func register() {
+        let urls = ["Geist-Variable", "GeistMono-Variable", "InstrumentSerif-Regular", "InstrumentSerif-Italic"]
+            .compactMap { Bundle.pulleyResources.url(forResource: $0, withExtension: "ttf") }
+        guard !urls.isEmpty else { return }
+        CTFontManagerRegisterFontURLs(urls as CFArray, .process, true, nil)
+        registered = NSFont(name: "Geist-Regular", size: 12) != nil
+    }
+
+    static func font(_ postScriptName: String, size: CGFloat, fallback: Font) -> Font {
+        registered ? .custom(postScriptName, fixedSize: size) : fallback
+    }
+
+    /// Named instance of the variable fonts for a SwiftUI weight.
+    static func instance(_ weight: Font.Weight) -> String {
+        switch weight {
+        case .ultraLight: return "ExtraLight"
+        case .thin:       return "Thin"
+        case .light:      return "Light"
+        case .medium:     return "Medium"
+        case .semibold:   return "SemiBold"
+        case .bold:       return "Bold"
+        case .heavy:      return "ExtraBold"
+        case .black:      return "Black"
+        default:          return "Regular"
+        }
+    }
 }

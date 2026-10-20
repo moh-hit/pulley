@@ -8,6 +8,45 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+### Added
+- **Redesigned main window.** A sidebar replaces the tab strip: Home, the
+  pull request filters with live counts, Inbox, and your organizations,
+  with sync status and Settings at the bottom (⌘1–⌘7 to switch, ⌘R to
+  sync, ⌘, for Settings, ⌘F to search). Content sits on a raised panel
+  over a warm neutral background, in light and dark.
+- **Home.** A greeting with what needs you, cards for changes requested,
+  in review and approved (with how many are ready to merge) that jump to
+  that list, totals, and recently updated pull requests grouped by day.
+- **Collapsible sidebar.** Collapse it to an icon rail with the button
+  beside the window controls or ⌃⌘S; Pulley remembers your choice.
+- **New type and icons.** Geist for the interface, Geist Mono for
+  branches, PR numbers and diffs, Instrument Serif for headings and big
+  numbers, and Phosphor icons throughout. Fonts are bundled under the SIL
+  Open Font License and icons under MIT; both fall back to system fonts
+  and SF Symbols if they can't load.
+
+### Changed
+- **Calmer pull request list.** Each row is now the title and age, the
+  repo and number, and at most one chip for what needs attention —
+  conflicts, failing CI, merge queue, auto-merge, blocked, behind base,
+  running CI or draft, in that order. Review status stays on the colored
+  edge; branch and check details are in the detail pane.
+- **Fewer colors in the main window.** Color now means "act on this":
+  red only for what blocks a PR (changes requested, conflicts, failing
+  CI), purple only for the merge flow, blue only for selection and the
+  primary action. Statuses, waiting states (behind base, blocked, CI
+  running), passing checks and Inbox reasons are neutral gray; the
+  per-repo color dots and colored status pills are gone.
+- The menu-bar popover follows the same rule: gray section dots and
+  status pills except for changes requested, gray waiting states and
+  pending checks, a neutral wordmark, and a red (not orange) sync-error
+  banner.
+
+### Fixed
+- The detail pane no longer keeps showing a pull request after a filter
+  or search hides it from the list.
+- PR numbers no longer show a thousands separator (#1207, not #1,207).
+
 ### Developer
 - **Launch smoke test.** `./smoke-launch.sh` starts a built `Pulley.app`
   with the build tree's resource bundles hidden and fails if it doesn't

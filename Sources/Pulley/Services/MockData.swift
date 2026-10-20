@@ -111,6 +111,21 @@ enum MockData {
         1207: StackInfo(number: 41, size: 3, position: 3),
     ]
 
+    /// Placeholder PR description so previews show a rendered body.
+    static func description(for pr: PR) -> String {
+        """
+        ## Summary
+        \(pr.title).
+
+        - Keeps the change scoped to `\(pr.repo)`
+        - Adds tests for the new path
+
+        ## Test plan
+        - [x] Unit tests
+        - [ ] Verify on staging
+        """
+    }
+
     /// Copilot review fixtures: reviewed at head, reviewed an older push,
     /// and reviewing now; everything else has never been reviewed.
     static func copilotReview(for pr: PR) -> CopilotReviewState {
@@ -185,5 +200,6 @@ enum MockData {
         CopilotReviewState(requested: false, lastReviewAt: nil, lastReviewedCommit: nil)
     }
     static func stackEntries(for pr: PR) -> [StackEntry] { [] }
+    static func description(for pr: PR) -> String { "" }
     #endif
 }

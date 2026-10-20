@@ -52,7 +52,7 @@ struct ContentView: View {
                 return Section(
                     id: "status:\(status.rawValue)",
                     title: statusLabel(status),
-                    accent: statusColor(status),
+                    accent: status == .changes ? .red : Color.secondary.opacity(0.65),
                     prs: list
                 )
             }
@@ -211,20 +211,20 @@ private struct HeaderView: View {
     var body: some View {
         HStack(spacing: 8) {
             Text("PULLEY")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(Theme.mono(11, .semibold))
                 .tracking(1)
-                .foregroundColor(.accentColor)
+                .foregroundColor(.primary)
 
             if !store.prs.isEmpty {
                 Text("·").foregroundColor(.secondary)
                 Text("\(store.prs.count) PR\(store.prs.count == 1 ? "" : "s")")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(Theme.mono(10))
                     .foregroundColor(.secondary)
             }
 
             if store.isMockData {
                 Text("PREVIEW")
-                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .font(Theme.mono(8, .semibold))
                     .tracking(0.5)
                     .foregroundColor(.secondary.opacity(0.8))
             }
@@ -233,15 +233,14 @@ private struct HeaderView: View {
 
             if store.syncing {
                 Text("Syncing…")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(Theme.mono(10))
                     .foregroundColor(.secondary)
             } else if let t = store.lastSync {
                 HStack(spacing: 4) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .semibold))
+                    Icon("checkmark", size: 9)
                     Text(t.formatted(.dateTime.hour().minute()))
                 }
-                .font(.system(size: 10, design: .monospaced))
+                .font(Theme.mono(10))
                 .foregroundColor(.secondary)
             }
 
@@ -249,7 +248,7 @@ private struct HeaderView: View {
                 if store.syncing {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: "arrow.clockwise")
+                    Icon("arrow.clockwise", size: 13)
                 }
             }
             .buttonStyle(.borderless)
@@ -273,7 +272,7 @@ private struct HeaderView: View {
                     Label("Quit Pulley", systemImage: "power")
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Icon("ellipsis.circle", size: 14)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -291,20 +290,19 @@ private struct SyncErrorBanner: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.orange)
+            Icon("exclamationmark.triangle.fill", size: 10)
+                .foregroundColor(.red)
             Text("Couldn't refresh pull requests")
-                .font(.system(size: 11, weight: .medium))
+                .font(Theme.ui(11, .medium))
                 .foregroundColor(.primary)
             Spacer(minLength: 8)
             Button("Retry", action: retry)
                 .buttonStyle(.borderless)
-                .font(.system(size: 11, weight: .semibold))
+                .font(Theme.ui(11, .semibold))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(Color.orange.opacity(0.09))
+        .background(Color.red.opacity(0.07))
         .help(message)
     }
 }
@@ -323,17 +321,15 @@ private struct FilterRow: View {
     var body: some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10, weight: .medium))
+                Icon("magnifyingglass", size: 10)
                     .foregroundColor(.secondary.opacity(0.75))
                 TextField("Find pull requests", text: $query)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(Theme.ui(12))
                     .focused(searchFocused)
                 if !query.isEmpty {
                     Button { query = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                        Icon("xmark.circle.fill", size: 10)
                             .foregroundColor(.secondary.opacity(0.75))
                     }
                     .buttonStyle(.plain)
@@ -375,12 +371,10 @@ private struct FilterRow: View {
                 }
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: groupBy.icon)
-                        .font(.system(size: 10, weight: .medium))
+                    Icon(groupBy.icon, size: 10)
                     Text(groupBy.menuLabel)
-                        .font(.system(size: 11, weight: .medium))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .medium))
+                        .font(Theme.ui(11, .medium))
+                    Icon("chevron.down", size: 8)
                         .foregroundColor(.secondary.opacity(0.7))
                 }
                 .foregroundColor(.secondary)
@@ -461,7 +455,7 @@ private struct EmptyState: View {
     let message: String
     var body: some View {
         Text(message)
-            .font(.system(size: 11, design: .monospaced))
+            .font(Theme.mono(11))
             .foregroundColor(.secondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -489,15 +483,14 @@ private struct SectionView: View {
                         .fill(section.accent.opacity(0.85))
                         .frame(width: 7, height: 7)
                     Text(section.title)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(Theme.mono(11, .medium))
                         .tracking(0.4)
                         .foregroundColor(.primary)
                     Text("\(section.prs.count)")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(Theme.mono(10))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 9, weight: .medium))
+                    Icon(isCollapsed ? "chevron.right" : "chevron.down", size: 9)
                         .foregroundColor(.secondary)
                 }
                 .padding(.vertical, 5)
@@ -574,7 +567,7 @@ private struct PRRow: View {
                     withAnimation(.easeOut(duration: 0.14)) { isExpanded.toggle() }
                 } label: {
                     Text(pr.title)
-                        .font(.system(size: 13))
+                        .font(Theme.ui(13))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .foregroundColor(.primary)
@@ -614,7 +607,7 @@ private struct PRRow: View {
                 .animation(.easeOut(duration: 0.1), value: quickActionsVisible)
 
                 Text(relativeTime(pr.updatedAt))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(Theme.mono(10))
                     .foregroundColor(.secondary)
                     .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
 
@@ -622,8 +615,7 @@ private struct PRRow: View {
                     onSelect()
                     withAnimation(.easeOut(duration: 0.14)) { isExpanded.toggle() }
                 } label: {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 8, weight: .medium))
+                    Icon(isExpanded ? "chevron.up" : "chevron.down", size: 8)
                         .foregroundColor(.secondary.opacity(0.7))
                         .frame(width: 16, height: 18)
                         .contentShape(Rectangle())
@@ -700,17 +692,16 @@ private struct PRRow: View {
 
             HStack(spacing: 6) {
                 if !pr.branch.isEmpty {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 9))
+                    Icon("arrow.triangle.branch", size: 9)
                     Text(pr.branch)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(Theme.mono(10))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help(pr.branch)
                 }
                 Spacer(minLength: 6)
-                Text("#\(pr.number)")
-                    .font(.system(size: 9, design: .monospaced))
+                Text("#\(String(pr.number))")
+                    .font(Theme.mono(9))
                     .foregroundColor(.secondary.opacity(0.7))
             }
             .foregroundColor(.secondary)
@@ -725,7 +716,7 @@ private struct PRRow: View {
                         ProgressView().controlSize(.small)
                         Text("Preparing…")
                     }
-                    .font(.system(size: 10, weight: .medium))
+                    .font(Theme.ui(10, .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
@@ -768,8 +759,7 @@ private struct QuickCopyButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 9, weight: .semibold))
+            Icon(icon, size: 9)
                 .foregroundColor(copied ? .green : .secondary.opacity(hovered ? 1 : 0.75))
                 .frame(width: 20, height: 18)
                 .background(
@@ -793,7 +783,7 @@ private struct RowActionButton: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.system(size: 10, weight: .medium))
+                .font(Theme.ui(10, .medium))
                 .lineLimit(1)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
@@ -821,14 +811,12 @@ private struct CheckStatusDot: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 3) {
-                Image(systemName: glyph)
-                    .font(.system(size: 9, weight: .semibold))
+                Icon(glyph, size: 9)
                     .foregroundColor(color)
                 Text("\(count)")
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(Theme.mono(9))
                     .foregroundColor(color.opacity(0.85))
-                Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 7, weight: .medium))
+                Icon(expanded ? "chevron.up" : "chevron.down", size: 7)
                     .foregroundColor(.secondary.opacity(0.7))
             }
             .padding(.horizontal, 5)
@@ -881,22 +869,20 @@ private struct CheckRow: View {
             if let url = check.url { PRActions.openInBrowser(url) }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: glyph)
-                    .font(.system(size: 9, weight: .semibold))
+                Icon(glyph, size: 9)
                     .foregroundColor(color)
                     .frame(width: 12)
                 Text(check.name)
-                    .font(.system(size: 11))
+                    .font(Theme.ui(11))
                     .foregroundColor(.primary.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
                 Text(check.stateLabel)
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(Theme.mono(9))
                     .foregroundColor(color.opacity(0.9))
                 if check.url != nil {
-                    Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 9))
+                    Icon("arrow.up.right.square", size: 9)
                         .foregroundColor(.secondary.opacity(hovered ? 1 : 0.4))
                 }
             }
@@ -928,17 +914,16 @@ private struct RepoChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "folder")
-                .font(.system(size: 8, weight: .medium))
+            Icon("folder", size: 8)
                 .foregroundColor(.secondary.opacity(0.75))
             Group {
                 if let orgPrefix {
                     (Text(orgPrefix + "/").foregroundColor(.primary.opacity(0.45))
                      + Text(repo).foregroundColor(.primary.opacity(0.75)))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(Theme.mono(10, .medium))
                 } else {
                     Text(repo)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(Theme.mono(10, .medium))
                         .foregroundColor(.primary.opacity(0.75))
                 }
             }
@@ -966,12 +951,12 @@ private struct StatusInline: View {
 
     var body: some View {
         Text(statusLabel(status).lowercased())
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundColor(statusColor(status).opacity(0.88))
+            .font(Theme.mono(10, .medium))
+            .foregroundColor(status == .changes ? .red : .secondary)
             .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Capsule().fill(statusColor(status).opacity(0.09)))
+            .background(Capsule().fill(Color.primary.opacity(0.055)))
             .fixedSize()
             .help(statusLabel(status))
     }
@@ -982,10 +967,9 @@ private struct MergeableChip: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: glyph)
-                .font(.system(size: 9, weight: .semibold))
+            Icon(glyph, size: 9)
             Text(state.label)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(Theme.mono(10, .medium))
                 .lineLimit(1)
         }
         .foregroundColor(color)
@@ -999,11 +983,8 @@ private struct MergeableChip: View {
 
     private var glyph: String { mergeableGlyph(state) }
     private var color: Color {
-        switch state {
-        case .dirty, .blocked, .unstable: return .red
-        case .behind:                     return .orange
-        default:                          return .secondary
-        }
+        // Only conflicts block the author outright; the rest are waiting states.
+        state == .dirty ? .red : .secondary
     }
 
     private var helpText: String {
@@ -1022,7 +1003,7 @@ private struct MutedChip: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(Theme.mono(9, .medium))
             .foregroundColor(.secondary)
             .lineLimit(1)
             .padding(.horizontal, 6)
@@ -1056,11 +1037,7 @@ private extension GroupBy {
 /// neutral, and absent checks remain distinguishable by glyph without adding
 /// another persistent accent to every row.
 private func popoverCheckColor(_ status: CheckStatus) -> Color {
-    switch status {
-    case .failure: return .red
-    case .pending: return .orange
-    case .success, .neutral, .none: return .secondary
-    }
+    status == .failure ? .red : .secondary
 }
 
 private func statusLabel(_ s: PRStatus) -> String {

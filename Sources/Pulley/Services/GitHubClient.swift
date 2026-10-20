@@ -461,6 +461,18 @@ struct GitHubClient: Sendable {
         )
     }
 
+    /// The signed-in user's first name for the Home greeting, falling back
+    /// to their login when the profile has no name.
+    func fetchViewerFirstName() async throws -> String {
+        struct Payload: Decodable {
+            struct Viewer: Decodable { let login: String; let name: String? }
+            let viewer: Viewer
+        }
+        let resp: Payload = try await graphqlFetch(query: "query { viewer { login name } }", variables: [:])
+        let first = resp.viewer.name?.split(separator: " ").first.map(String.init)
+        return first ?? resp.viewer.login
+    }
+
     /// Every PR in the stack this PR belongs to, bottom first.
     func fetchStackEntries(org: String, repo: String, number: Int) async throws -> [StackEntry] {
         struct Payload: Decodable {

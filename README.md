@@ -37,7 +37,7 @@
 - **Merge from Pulley** — squash, merge commit, or rebase (only what the repo allows), **merge when ready** via auto-merge, and **merge queue** support with live queue position.
 - **Multi-org** with per-org coloring and `org/repo` chips when repo names collide.
 - **Token stored in Keychain**, never on disk.
-- **Menu-bar only** — no Dock icon, no main window.
+- **Menu bar plus a main window** — a sidebar with Home, PR filters, Inbox and organizations (collapsible to an icon rail), and a Home page summarizing what needs you.
 
 ## Install
 
