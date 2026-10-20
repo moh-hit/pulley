@@ -19,6 +19,9 @@ struct SidebarView: View {
     @State private var nowTick = Date()
     /// Icon-only rail, decided by the window (user choice or too narrow).
     let collapsed: Bool
+    /// False when the window is too narrow for the full sidebar.
+    let canToggle: Bool
+    let onToggle: () -> Void
 
     private static let statuses: [PRStatus] = [.changes, .review, .approved, .open]
 
@@ -29,12 +32,18 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: collapsed ? .center : .leading, spacing: 2) {
-            if !collapsed {
-                brand
-                    .padding(.top, 10)
-                    .padding(.bottom, 14)
+            if collapsed {
+                toggleButton
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
             } else {
-                Spacer().frame(height: 10)
+                HStack(spacing: 0) {
+                    brand
+                    Spacer(minLength: 4)
+                    toggleButton
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 12)
             }
 
             SidebarItem(
@@ -114,6 +123,22 @@ struct SidebarView: View {
     private func templated(_ image: NSImage) -> NSImage {
         image.isTemplate = true
         return image
+    }
+
+    private var toggleButton: some View {
+        Button(action: onToggle) {
+            Icon("sidebar.left", size: 15)
+                .foregroundColor(.secondary)
+                .frame(width: 30, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("s", modifiers: [.command, .control])
+        .disabled(!canToggle)
+        .help(!canToggle
+              ? "Widen the window to show the sidebar"
+              : (collapsed ? "Show sidebar (⌃⌘S)" : "Hide sidebar (⌃⌘S)"))
+        .accessibilityLabel(collapsed ? "Show sidebar" : "Hide sidebar")
     }
 
     @ViewBuilder

@@ -120,6 +120,26 @@ enum Theme {
         BundledFonts.font("GeistMono-\(BundledFonts.instance(weight))", size: size, fallback: .system(size: size, weight: weight, design: .monospaced))
     }
 
+    /// GitHub's contribution greens, 0 (none) … 4 (most), light and dark.
+    static func contribution(_ level: Int) -> Color {
+        let light: [NSColor] = [
+            NSColor(srgbRed: 0.922, green: 0.929, blue: 0.941, alpha: 1),   // #ebedf0
+            NSColor(srgbRed: 0.608, green: 0.914, blue: 0.659, alpha: 1),   // #9be9a8
+            NSColor(srgbRed: 0.251, green: 0.769, blue: 0.388, alpha: 1),   // #40c463
+            NSColor(srgbRed: 0.188, green: 0.631, blue: 0.306, alpha: 1),   // #30a14e
+            NSColor(srgbRed: 0.129, green: 0.431, blue: 0.224, alpha: 1),   // #216e39
+        ]
+        let dark: [NSColor] = [
+            NSColor(srgbRed: 0.231, green: 0.227, blue: 0.220, alpha: 1),
+            NSColor(srgbRed: 0.055, green: 0.267, blue: 0.161, alpha: 1),   // #0e4429
+            NSColor(srgbRed: 0.000, green: 0.427, blue: 0.196, alpha: 1),   // #006d32
+            NSColor(srgbRed: 0.149, green: 0.651, blue: 0.255, alpha: 1),   // #26a641
+            NSColor(srgbRed: 0.224, green: 0.827, blue: 0.325, alpha: 1),   // #39d353
+        ]
+        let i = max(0, min(4, level))
+        return adaptive(light: light[i], dark: dark[i])
+    }
+
     private static func adaptive(light: NSColor, dark: NSColor) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light

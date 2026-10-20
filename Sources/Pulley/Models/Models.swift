@@ -100,6 +100,39 @@ struct MergeInfo: Codable, Hashable {
     }
 }
 
+/// The viewer's GitHub contribution calendar (the green-squares graph):
+/// commits, PRs, issues and reviews per day for the last year.
+struct ContributionCalendar: Codable, Hashable {
+    struct Day: Codable, Hashable {
+        let date: Date        // midnight UTC of the calendar day
+        let count: Int
+        /// 0 = Sunday … 6 = Saturday, as GitHub reports it.
+        let weekday: Int
+    }
+    /// Oldest week first; the last week may be partial.
+    var weeks: [[Day]]
+    var total: Int
+
+    var days: [Day] { weeks.flatMap { $0 } }
+
+    /// Consecutive days with activity, ending today — or yesterday, so an
+    /// empty "today" doesn't break a streak that is still alive.
+    var currentStreak: Int {
+        var d = days
+        if d.last?.count == 0 { d.removeLast() }
+        return d.reversed().prefix(while: { $0.count > 0 }).count
+    }
+
+    /// Activity thresholds (quartiles of the non-zero days) for shading.
+    func level(for count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let nonZero = days.map(\.count).filter { $0 > 0 }.sorted()
+        guard !nonZero.isEmpty else { return 1 }
+        func q(_ f: Double) -> Int { nonZero[min(nonZero.count - 1, Int(Double(nonZero.count) * f))] }
+        return 1 + (count > q(0.25) ? 1 : 0) + (count > q(0.5) ? 1 : 0) + (count > q(0.75) ? 1 : 0)
+    }
+}
+
 /// Membership in a native GitHub stack (stacked pull requests).
 struct StackInfo: Codable, Hashable {
     let number: Int

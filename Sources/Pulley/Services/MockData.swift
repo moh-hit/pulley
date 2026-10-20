@@ -114,6 +114,42 @@ enum MockData {
         1207: StackInfo(number: 41, size: 3, position: 3),
     ]
 
+    /// A year of plausible activity: busier on weekdays, quiet stretches, and
+    /// a live streak ending today.
+    static var contributions: ContributionCalendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let today = cal.startOfDay(for: Date())
+        let weekdayToday = cal.component(.weekday, from: today) - 1    // 0 = Sunday
+        // 52 full weeks plus the current partial one.
+        let start = cal.date(byAdding: .day, value: -(52 * 7 + weekdayToday), to: today)!
+        var weeks: [[ContributionCalendar.Day]] = []
+        var total = 0
+        var day = start
+        while day <= today {
+            var week: [ContributionCalendar.Day] = []
+            for _ in 0..<7 where day <= today {
+                let idx = cal.dateComponents([.day], from: start, to: day).day ?? 0
+                let wd = cal.component(.weekday, from: day) - 1
+                let daysAgo = cal.dateComponents([.day], from: day, to: today).day ?? 0
+                // Deterministic pseudo-random level, damped on weekends.
+                var h = UInt64(idx &* 2654435761 &+ 97) % 100
+                if wd == 0 || wd == 6 { h = h % 60 }
+                let count: Int
+                if daysAgo < 6 { count = 2 + Int(h % 9) }              // live streak
+                else if h < 38 { count = 0 }
+                else if h < 70 { count = 1 + Int(h % 3) }
+                else if h < 90 { count = 4 + Int(h % 5) }
+                else { count = 9 + Int(h % 12) }
+                total += count
+                week.append(.init(date: day, count: count, weekday: wd))
+                day = cal.date(byAdding: .day, value: 1, to: day)!
+            }
+            weeks.append(week)
+        }
+        return ContributionCalendar(weeks: weeks, total: total)
+    }
+
     /// A few notifications so the Inbox has something to show.
     static var inbox: [InboxThread] {
         let now = Date()
@@ -224,5 +260,6 @@ enum MockData {
     static func stackEntries(for pr: PR) -> [StackEntry] { [] }
     static func description(for pr: PR) -> String { "" }
     static var inbox: [InboxThread] { [] }
+    static var contributions: ContributionCalendar? { nil }
     #endif
 }

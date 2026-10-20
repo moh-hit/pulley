@@ -102,7 +102,9 @@ struct MainWindowView: View {
             SidebarView(
                 section: $section,
                 onOpenSettings: { showSettings = true },
-                collapsed: userCollapsed || narrow
+                collapsed: userCollapsed || narrow,
+                canToggle: !narrow,
+                onToggle: { withAnimation(.easeOut(duration: 0.18)) { userCollapsed.toggle() } }
             )
             VStack(spacing: 0) {
                 if let error = store.lastError {
@@ -211,30 +213,13 @@ struct MainWindowView: View {
         }
     }
 
-    /// The warm strip across the top: window buttons and the sidebar toggle
-    /// share one line, and the content panel starts below it so nothing
-    /// straddles the panel's edge.
+    /// The warm strip across the top, holding the window buttons; the content
+    /// panel starts below it so nothing straddles the panel's edge.
     private func topStrip(narrow: Bool) -> some View {
-        HStack(spacing: 0) {
-            Color.clear.frame(width: 72, height: 1)   // window buttons
-            Button {
-                withAnimation(.easeOut(duration: 0.18)) { userCollapsed.toggle() }
-            } label: {
-                Icon("sidebar.left", size: 15)
-                    .foregroundColor(.secondary)
-                    .frame(width: 30, height: 26)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("s", modifiers: [.command, .control])
-            .disabled(narrow)
-            .help(narrow
-                  ? "Widen the window to show the sidebar"
-                  : (userCollapsed ? "Show sidebar (⌃⌘S)" : "Hide sidebar (⌃⌘S)"))
-            .accessibilityLabel(userCollapsed || narrow ? "Show sidebar" : "Hide sidebar")
-            Spacer(minLength: 0)
-        }
-        .frame(height: 32)
+        // Window buttons only. Controls placed in this title-bar zone never
+        // receive mouse clicks (the window claims them for dragging), so the
+        // sidebar toggle lives in the sidebar, just below.
+        Color.clear.frame(height: 32)
     }
 
     /// List keyboard commands. Only meaningful on a PR list.

@@ -473,6 +473,40 @@ struct GitHubClient: Sendable {
         return first ?? resp.viewer.login
     }
 
+    /// The signed-in user's contribution calendar for the last year.
+    func fetchContributions() async throws -> ContributionCalendar {
+        struct Payload: Decodable {
+            struct Day: Decodable { let date: String; let contributionCount: Int; let weekday: Int }
+            struct Week: Decodable { let contributionDays: [Day] }
+            struct Calendar: Decodable { let totalContributions: Int; let weeks: [Week] }
+            struct Collection: Decodable { let contributionCalendar: Calendar }
+            struct Viewer: Decodable { let contributionsCollection: Collection }
+            let viewer: Viewer
+        }
+        let query = """
+        query { viewer { contributionsCollection { contributionCalendar {
+          totalContributions
+          weeks { contributionDays { date contributionCount weekday } }
+        } } } }
+        """
+        let resp: Payload = try await graphqlFetch(query: query, variables: [:])
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let cal = resp.viewer.contributionsCollection.contributionCalendar
+        return ContributionCalendar(
+            weeks: cal.weeks.map { week in
+                week.contributionDays.compactMap { d in
+                    formatter.date(from: d.date).map {
+                        ContributionCalendar.Day(date: $0, count: d.contributionCount, weekday: d.weekday)
+                    }
+                }
+            },
+            total: cal.totalContributions
+        )
+    }
+
     /// Every PR in the stack this PR belongs to, bottom first.
     func fetchStackEntries(org: String, repo: String, number: Int) async throws -> [StackEntry] {
         struct Payload: Decodable {

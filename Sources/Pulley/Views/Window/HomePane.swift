@@ -28,15 +28,36 @@ struct HomePane: View {
                 if prs.isEmpty {
                     emptyState
                 } else {
-                    cards
-                    activity
+                    if let contributions = store.contributions {
+                        // Cards and feed on the left, the contribution graph in
+                        // the right column; stacked when the window is narrow.
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: 28) {
+                                mainColumn.frame(minWidth: 520)
+                                ContributionChart(calendar: contributions).frame(width: 320)
+                            }
+                            VStack(alignment: .leading, spacing: 28) {
+                                ContributionChart(calendar: contributions)
+                                mainColumn
+                            }
+                        }
+                    } else {
+                        mainColumn
+                    }
                 }
             }
             .padding(.horizontal, 40)
             .padding(.top, 36)
             .padding(.bottom, 40)
-            .frame(maxWidth: 940, alignment: .leading)
+            .frame(maxWidth: 1240, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private var mainColumn: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            cards
+            activity
         }
     }
 
