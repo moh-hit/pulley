@@ -8,14 +8,14 @@ import AppKit
 struct ContributionChart: View {
     let calendar: ContributionCalendar
 
-    /// Weeks shown — what fits a side column at a readable cell size.
-    private let weekCount = 20
     private let gap: CGFloat = 3
     private let labelWidth: CGFloat = 24
+    private let minWeeks = 20
+    /// Cells never grow past this; extra width shows more weeks instead.
+    private let maxCell: CGFloat = 11
 
-    private var weeks: [[ContributionCalendar.Day]] { Array(calendar.weeks.suffix(weekCount)) }
-
-    private var recentTotal: Int { weeks.flatMap { $0 }.reduce(0) { $0 + $1.count } }
+    /// Contributions in the last 30 days.
+    private var recentTotal: Int { calendar.days.suffix(30).reduce(0) { $0 + $1.count } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -28,9 +28,14 @@ struct ContributionChart: View {
             }
 
             GeometryReader { geo in
-                let cell = max(6, (geo.size.width - labelWidth - CGFloat(weeks.count - 1) * gap) / CGFloat(weeks.count))
+                // As many weeks as fit at the target size (at least 20, at most
+                // the whole year), then size the cells to fill the row.
+                let fit = Int((geo.size.width - labelWidth + gap) / (maxCell + gap))
+                let count = min(calendar.weeks.count, max(minWeeks, fit))
+                let weeks = Array(calendar.weeks.suffix(count))
+                let cell = min(maxCell, max(6, (geo.size.width - labelWidth - CGFloat(count - 1) * gap) / CGFloat(count)))
                 VStack(alignment: .leading, spacing: 6) {
-                    monthLabels(cell: cell)
+                    monthLabels(weeks: weeks, cell: cell)
                     HStack(alignment: .top, spacing: 0) {
                         weekdayLabels(cell: cell)
                         HStack(alignment: .top, spacing: gap) {
@@ -46,7 +51,7 @@ struct ContributionChart: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 18) {
                     stat("\(calendar.currentStreak)", "day streak")
-                    stat("\(recentTotal.formatted())", "in \(weekCount) weeks")
+                    stat("\(recentTotal.formatted())", "in 30 days")
                     Spacer(minLength: 0)
                 }
                 legend
@@ -59,8 +64,8 @@ struct ContributionChart: View {
         .accessibilityLabel("Contributions: \(calendar.total) in the last year, \(calendar.currentStreak) day streak")
     }
 
-    /// Approximate: month row + 7 rows at the cell size a 300pt column yields.
-    private var gridHeight: CGFloat { 16 + 6 + 7 * 10 + 6 * gap + 6 }
+    /// Month row + 7 rows at the maximum cell size.
+    private var gridHeight: CGFloat { 12 + 6 + 7 * maxCell + 6 * gap }
 
     // MARK: Grid
 
@@ -85,20 +90,20 @@ struct ContributionChart: View {
         VStack(alignment: .leading, spacing: gap) {
             ForEach(0..<7, id: \.self) { row in
                 Text([1, 3, 5].contains(row) ? ["", "Mon", "", "Wed", "", "Fri", ""][row] : "")
-                    .font(Theme.ui(10))
+                    .font(Theme.ui(11))
                     .foregroundColor(.secondary)
                     .frame(width: labelWidth, height: cell, alignment: .leading)
             }
         }
     }
 
-    private func monthLabels(cell: CGFloat) -> some View {
+    private func monthLabels(weeks: [[ContributionCalendar.Day]], cell: CGFloat) -> some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: labelWidth, height: 10)
             HStack(alignment: .top, spacing: gap) {
                 ForEach(Array(weeks.enumerated()), id: \.offset) { index, week in
-                    Text(monthLabel(week: week, index: index))
-                        .font(Theme.ui(10))
+                    Text(monthLabel(weeks: weeks, index: index))
+                        .font(Theme.ui(11))
                         .foregroundColor(.secondary)
                         .fixedSize()
                         .frame(width: cell, alignment: .leading)
@@ -109,8 +114,8 @@ struct ContributionChart: View {
     }
 
     /// Month name over the first week that contains the 1st–7th of a month.
-    private func monthLabel(week: [ContributionCalendar.Day], index: Int) -> String {
-        guard let day = week.first(where: { dayOfMonth($0.date) <= 7 }), dayOfMonth(day.date) <= 7,
+    private func monthLabel(weeks: [[ContributionCalendar.Day]], index: Int) -> String {
+        guard let day = weeks[index].first(where: { dayOfMonth($0.date) <= 7 }), dayOfMonth(day.date) <= 7,
               index == 0 || dayOfMonth(weeks[index - 1].last?.date ?? day.date) > 7
         else { return "" }
         return Self.monthFormatter.string(from: day.date)
@@ -131,13 +136,13 @@ struct ContributionChart: View {
 
     private var legend: some View {
         HStack(spacing: 3) {
-            Text("Less").font(Theme.ui(10)).foregroundColor(.secondary).fixedSize()
+            Text("Less").font(Theme.ui(11)).foregroundColor(.secondary).fixedSize()
             ForEach(0..<5, id: \.self) { level in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(Theme.contribution(level))
                     .frame(width: 9, height: 9)
             }
-            Text("More").font(Theme.ui(10)).foregroundColor(.secondary).fixedSize()
+            Text("More").font(Theme.ui(11)).foregroundColor(.secondary).fixedSize()
             Spacer(minLength: 0)
         }
         .accessibilityHidden(true)
