@@ -8,6 +8,8 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-20
+
 ### Added
 - **Redesigned main window.** A sidebar replaces the tab strip: Home, the
   pull request filters with live counts, Inbox, and your organizations,
@@ -473,7 +475,8 @@ to settings shape or filesystem layout.
 - Tag-push release pipeline (`.github/workflows/release.yml`) that
   builds an ad-hoc-signed DMG.
 
-[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/moh-hit/pulley/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/moh-hit/pulley/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/moh-hit/pulley/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/moh-hit/pulley/compare/v1.7.0...v1.8.0
