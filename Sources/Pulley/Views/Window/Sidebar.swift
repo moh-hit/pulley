@@ -161,7 +161,10 @@ struct SidebarView: View {
             store.sync()
         } label: {
             HStack(spacing: 8) {
-                Icon(store.syncing ? "arrow.triangle.2.circlepath" : "arrow.clockwise", size: 12)
+                Icon(store.lastError != nil && !store.syncing
+                        ? "exclamationmark.triangle.fill"
+                        : (store.syncing ? "arrow.triangle.2.circlepath" : "arrow.clockwise"),
+                     size: 12)
                     .frame(width: 18)
                 if !collapsed {
                     Text(syncLabel)
@@ -169,19 +172,22 @@ struct SidebarView: View {
                     Spacer(minLength: 0)
                 }
             }
-            .foregroundColor(.secondary)
+            .foregroundColor(store.lastError != nil && !store.syncing ? .red : .secondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(store.syncing)
+        .accessibilityLabel(syncLabel)
         .keyboardShortcut("r", modifiers: .command)
-        .help(collapsed ? "\(syncLabel) — sync now (⌘R)" : "Sync now (⌘R)")
+        .help(store.lastError.map { SyncProblem(raw: $0).raw } ?? (collapsed ? "\(syncLabel) — sync now (⌘R)" : "Sync now (⌘R)"))
     }
 
     private var syncLabel: String {
-        store.syncing ? "Syncing…" : relativeSyncLabel(store.lastSync, now: nowTick).capitalizedFirst
+        if store.syncing { return "Syncing…" }
+        if store.lastError != nil { return "Couldn't sync · Retry" }
+        return relativeSyncLabel(store.lastSync, now: nowTick).capitalizedFirst
     }
 }
 

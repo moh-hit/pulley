@@ -112,7 +112,11 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     HeaderView(showSettings: $showSettings)
                     if let error = store.lastError {
-                        SyncErrorBanner(message: error) { store.sync() }
+                        SyncErrorBanner(
+                            problem: SyncProblem(raw: error),
+                            onRetry: { store.sync() },
+                            onOpenSettings: { showSettings = true }
+                        )
                     }
                     Divider()
                     FilterRow(
@@ -281,29 +285,6 @@ private struct HeaderView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-    }
-}
-
-private struct SyncErrorBanner: View {
-    let message: String
-    let retry: () -> Void
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Icon("exclamationmark.triangle.fill", size: 10)
-                .foregroundColor(.red)
-            Text("Couldn't refresh pull requests")
-                .font(Theme.ui(11, .medium))
-                .foregroundColor(.primary)
-            Spacer(minLength: 8)
-            Button("Retry", action: retry)
-                .buttonStyle(.borderless)
-                .font(Theme.ui(11, .semibold))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(Color.red.opacity(0.07))
-        .help(message)
     }
 }
 

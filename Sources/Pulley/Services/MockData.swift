@@ -6,6 +6,9 @@ import Foundation
 enum MockData {
     #if DEBUG
     static let isEnabled = ProcessInfo.processInfo.environment["PULLEY_MOCK_DATA"] == "1"
+    /// Start with a failed sync, e.g. `PULLEY_MOCK_ERROR="401 Unauthorized"`.
+    /// Retry in mock mode clears it, so the banner's recovery path is testable.
+    static let initialError = ProcessInfo.processInfo.environment["PULLEY_MOCK_ERROR"]
 
     private struct Spec {
         let number: Int
@@ -195,6 +198,7 @@ enum MockData {
     }
     #else
     static let isEnabled = false
+    static let initialError: String? = nil
     static var prs: [PR] { [] }
     static func copilotReview(for pr: PR) -> CopilotReviewState {
         CopilotReviewState(requested: false, lastReviewAt: nil, lastReviewedCommit: nil)

@@ -80,7 +80,16 @@ struct MainWindowView: View {
     var body: some View {
         HStack(spacing: 0) {
             SidebarView(section: $section, onOpenSettings: { showSettings = true })
-            panel
+            VStack(spacing: 0) {
+                if let error = store.lastError {
+                    SyncErrorBanner(
+                        problem: SyncProblem(raw: error),
+                        onRetry: { store.sync() },
+                        onOpenSettings: { showSettings = true }
+                    )
+                }
+                panel
+            }
                 .background(Theme.panel)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
