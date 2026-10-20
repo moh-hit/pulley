@@ -6,6 +6,35 @@ loosely tracks [SemVer](https://semver.org/spec/v2.0.0.html) — patches
 for bugs, minor bumps for new features, major bumps for breaking changes
 to settings shape or filesystem layout.
 
+## [Unreleased]
+
+### Added
+- **Merge when ready.** When a PR isn't mergeable yet (CI running,
+  reviews outstanding, branch behind) and the repo allows auto-merge,
+  the detail pane offers **Merge when ready**, which turns on GitHub
+  auto-merge with your chosen method. Once it's on, the button becomes an
+  **Auto-merge · squash** status with **Cancel**.
+- **Merge queue support.** On branches that use a merge queue, ready PRs
+  get **Merge when ready → Add to merge queue**. Queued PRs show their
+  live position, state and ETA (**Queued · #2 · running checks · ~12 min**)
+  with **Remove**. PRs that aren't ready yet join the queue automatically
+  once they are.
+- `queued · #2` and `auto-merge` chips in the window list and the popover.
+- Notifications when a PR drops out of the merge queue or loses
+  auto-merge without merging. Changes you make from Pulley don't notify.
+
+### Changed
+- The merge confirmation only offers the methods the repo allows
+  (squash / merge commit / rebase): your remembered choice first, then
+  the repo's default.
+- Queue and auto-merge requests are pinned to the head commit Pulley
+  showed you, like direct merges, so a push that lands in between is
+  rejected instead of merging unseen code.
+
+### Developer
+- CI and release workflows bump `actions/checkout` to v7 and
+  `actions/cache` to v6 (supersedes the Dependabot PRs #24 and #25).
+
 ## [1.9.0] - 2026-10-20
 
 ### Changed
