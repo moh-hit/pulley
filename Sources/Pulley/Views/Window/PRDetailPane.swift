@@ -545,45 +545,135 @@ struct PRDetailPane: View {
       }
     }
 
-    /// "Merge" button — enabled only when GitHub reports the PR is cleanly
-    /// mergeable. Tapping opens a confirmation offering the three merge
-    /// strategies (defaulting to the remembered preference), so a merge is
-    /// always one explicit, deliberate choice rather than a stray click.
+    /// Merge control. What it offers follows `pr.mergeAction`: merge now,
+    /// add to the merge queue, merge-when-ready (auto-merge), or — once one
+    /// of those is in flight — its status with a way to back out. Starting
+    /// any of them goes through a confirmation so a merge is always one
+    /// explicit, deliberate choice rather than a stray click.
     @ViewBuilder
     private var mergeButton: some View {
-      // Only surface merge once the PR is actually mergeable — no point
-      // showing it for open / in-review PRs that can't be merged yet.
-      if pr.canMerge {
+        switch pr.mergeAction {
+        case .merge:
+            mergeFlowButton(title: "Merge", help: "Merge this PR")
+                .confirmationDialog(
+                    "Merge \(pr.repo)#\(pr.number)?",
+                    isPresented: $showMergeConfirm,
+                    titleVisibility: .visible
+                ) {
+                    ForEach(mergeMethods) { method in
+                        Button(method.label) {
+                            Config.mergeMethod = method
+                            merge(method: method)
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(pr.title)
+                }
+
+        case .enqueue:
+            mergeFlowButton(title: "Merge when ready", help: "Add this PR to the merge queue")
+                .confirmationDialog(
+                    "Add \(pr.repo)#\(pr.number) to the merge queue?",
+                    isPresented: $showMergeConfirm,
+                    titleVisibility: .visible
+                ) {
+                    Button("Add to merge queue") { enqueue() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("It merges once it passes checks against the latest \(pr.repo) base.")
+                }
+
+        case .enableAutoMerge:
+            let queued = pr.merge?.mergeQueueEnabled == true
+            mergeFlowButton(
+                title: "Merge when ready",
+                help: queued
+                    ? "Add to the merge queue automatically once requirements pass"
+                    : "Merge automatically once checks and reviews pass"
+            )
+            .confirmationDialog(
+                "Merge \(pr.repo)#\(pr.number) when ready?",
+                isPresented: $showMergeConfirm,
+                titleVisibility: .visible
+            ) {
+                if queued {
+                    Button("Add to merge queue when ready") { enableAutoMerge(method: nil) }
+                } else {
+                    ForEach(mergeMethods) { method in
+                        Button("\(method.label) when ready") {
+                            Config.mergeMethod = method
+                            enableAutoMerge(method: method)
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(autoMergeWaitingOn)
+            }
+
+        case .queued(let entry):
+            MergeFlowStatus(
+                icon: "list.number",
+                title: "Queued",
+                detail: entry.summary,
+                actionTitle: "Remove",
+                busy: inflightAction == .merge,
+                warn: entry.state == "UNMERGEABLE"
+            ) { dequeue() }
+            .disabled(inflightAction != nil)
+            .help("In the \(pr.repo) merge queue — remove to stop it merging")
+
+        case .autoMergeEnabled(let auto):
+            MergeFlowStatus(
+                icon: "clock.arrow.circlepath",
+                title: "Auto-merge",
+                detail: auto.method?.shortLabel,
+                actionTitle: (pr.merge?.canDisableAutoMerge ?? true) ? "Cancel" : nil,
+                busy: inflightAction == .merge,
+                warn: false
+            ) { disableAutoMerge() }
+            .disabled(inflightAction != nil)
+            .help(auto.enabledBy.map { "Enabled by @\($0) — merges once requirements pass" }
+                  ?? "Merges once requirements pass")
+
+        case .none:
+            EmptyView()
+        }
+    }
+
+    private func mergeFlowButton(title: String, help: String) -> some View {
         DetailActionButton(
-            title: "Merge",
-            systemImage: inflightAction == .merge
-                ? "hourglass"
-                : "arrow.triangle.merge",
+            title: title,
+            systemImage: inflightAction == .merge ? "hourglass" : "arrow.triangle.merge",
             style: .merge
         ) {
             showMergeConfirm = true
         }
         .disabled(inflightAction != nil)
-        .help("Merge this PR (\(Config.mergeMethod.label))")
-        .confirmationDialog(
-            "Merge \(pr.repo)#\(pr.number)?",
-            isPresented: $showMergeConfirm,
-            titleVisibility: .visible
-        ) {
-            // Remembered preference first, then the rest.
-            let ordered = [Config.mergeMethod]
-                + MergeMethod.allCases.filter { $0 != Config.mergeMethod }
-            ForEach(ordered) { method in
-                Button(method.label) {
-                    Config.mergeMethod = method
-                    merge(method: method)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(pr.title)
+        .help(help)
+    }
+
+    /// Repo-allowed methods, remembered preference first.
+    private var mergeMethods: [MergeMethod] {
+        guard let info = pr.merge else {
+            return [Config.mergeMethod] + MergeMethod.allCases.filter { $0 != Config.mergeMethod }
         }
-      }
+        return info.orderedMethods(preferred: Config.mergeMethod)
+    }
+
+    /// What auto-merge will wait for, for the confirmation's message.
+    private var autoMergeWaitingOn: String {
+        var waits: [String] = []
+        if pr.checkStatus == .pending { waits.append("checks finish") }
+        switch pr.merge?.reviewDecision {
+        case "REVIEW_REQUIRED":   waits.append("required reviews are in")
+        case "CHANGES_REQUESTED": waits.append("requested changes are approved")
+        default: break
+        }
+        if pr.mergeableState == .behind { waits.append("the branch is up to date") }
+        guard !waits.isEmpty else { return "GitHub merges it once branch requirements pass." }
+        return "GitHub merges it once " + waits.joined(separator: " and ") + "."
     }
 
     private var reviewSection: some View {
@@ -802,6 +892,76 @@ struct PRDetailPane: View {
                     // Re-sync so the merged PR drops out of the list and the
                     // badge updates. The detail pane's selection clears when
                     // its PR disappears from the store.
+                    self.store.sync()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionError = error.localizedDescription
+                    self.inflightAction = nil
+                }
+            }
+        }
+    }
+
+    private func enqueue() {
+        runMergeFlow { client, nodeID, prID in
+            let entry = try await client.enqueue(nodeID: nodeID, expectedHeadOid: self.pr.headSha)
+            await MainActor.run {
+                self.store.setLocalMerge(prID: prID, .queueEntry(
+                    entry ?? MergeInfo.QueueEntry(position: 0, state: "QUEUED", estimatedSecondsToMerge: nil)
+                ))
+            }
+        }
+    }
+
+    private func dequeue() {
+        runMergeFlow { client, nodeID, prID in
+            try await client.dequeue(nodeID: nodeID)
+            await MainActor.run { self.store.setLocalMerge(prID: prID, .queueEntry(nil)) }
+        }
+    }
+
+    private func enableAutoMerge(method: MergeMethod?) {
+        runMergeFlow { client, nodeID, prID in
+            let auto = try await client.enableAutoMerge(
+                nodeID: nodeID, method: method, expectedHeadOid: self.pr.headSha
+            )
+            await MainActor.run {
+                self.store.setLocalMerge(prID: prID, .autoMerge(
+                    auto ?? MergeInfo.AutoMerge(method: method, enabledBy: self.myLogin)
+                ))
+            }
+        }
+    }
+
+    private func disableAutoMerge() {
+        runMergeFlow { client, nodeID, prID in
+            try await client.disableAutoMerge(nodeID: nodeID)
+            await MainActor.run { self.store.setLocalMerge(prID: prID, .autoMerge(nil)) }
+        }
+    }
+
+    /// Shared plumbing for the GraphQL merge-flow mutations: they all need
+    /// the node ID, share the merge in-flight state, and re-sync after.
+    private func runMergeFlow(
+        _ body: @escaping (GitHubClient, String, String) async throws -> Void
+    ) {
+        guard let client = Config.makeClient() else {
+            actionError = "Token not configured."
+            return
+        }
+        guard let nodeID = pr.nodeID else {
+            actionError = "Refresh first — this PR's GitHub ID hasn't synced yet."
+            return
+        }
+        inflightAction = .merge
+        actionError = nil
+        let prID = pr.id
+        Task {
+            do {
+                try await body(client, nodeID, prID)
+                await MainActor.run {
+                    self.inflightAction = nil
                     self.store.sync()
                 }
             } catch {
@@ -2272,5 +2432,51 @@ struct EmptyDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.textBackgroundColor))
+    }
+}
+
+/// In-flight merge state (queued / auto-merge) shown in place of the merge
+/// button: a purple-tinted pill with the detail and a quiet undo link.
+private struct MergeFlowStatus: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    let actionTitle: String?
+    let busy: Bool
+    let warn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        let tint = warn ? Color.orange : mergePurple
+        HStack(spacing: 7) {
+            Image(systemName: busy ? "hourglass" : icon)
+                .font(.system(size: 11, weight: .semibold))
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(tint.opacity(0.85))
+            }
+            if let actionTitle {
+                Divider().frame(height: 12)
+                Button(actionTitle, action: action)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .foregroundColor(tint)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(tint.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(tint.opacity(0.30), lineWidth: 0.7)
+        )
+        .fixedSize()
     }
 }

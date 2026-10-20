@@ -24,6 +24,94 @@ enum MergeMethod: String, Codable, CaseIterable, Identifiable, Hashable, Sendabl
         case .rebase: return "arrow.triangle.branch"
         }
     }
+
+    /// One-word form for compact status text ("Auto-merge · squash").
+    var shortLabel: String {
+        switch self {
+        case .squash: return "squash"
+        case .merge:  return "merge commit"
+        case .rebase: return "rebase"
+        }
+    }
+
+    /// GraphQL's `PullRequestMergeMethod` enum spells these in uppercase.
+    var graphQLValue: String { rawValue.uppercased() }
+
+    init?(graphQL: String?) {
+        guard let raw = graphQL?.lowercased() else { return nil }
+        self.init(rawValue: raw)
+    }
+}
+
+/// Repo merge settings plus this PR's place in the auto-merge / merge-queue
+/// flow, fetched with the PR search. Optional on `PR` so blobs cached before
+/// it existed decode as `nil` (the merge button then falls back to plain
+/// merge until the next sync).
+struct MergeInfo: Codable, Hashable {
+    struct QueueEntry: Codable, Hashable {
+        /// 1-based position in the queue.
+        let position: Int
+        /// QUEUED | AWAITING_CHECKS | MERGEABLE | UNMERGEABLE | LOCKED
+        let state: String
+        let estimatedSecondsToMerge: Int?
+
+        /// "next · running checks · ~12 min" — the status text after "Queued".
+        var summary: String {
+            var parts = [position <= 1 ? "next" : "#\(position)"]
+            switch state {
+            case "AWAITING_CHECKS": parts.append("running checks")
+            case "UNMERGEABLE":     parts.append("failing")
+            case "LOCKED":          parts.append("merging")
+            default: break
+            }
+            if let s = estimatedSecondsToMerge, s > 0 {
+                parts.append("~\(max(1, Int((Double(s) / 60).rounded()))) min")
+            }
+            return parts.joined(separator: " · ")
+        }
+    }
+
+    struct AutoMerge: Codable, Hashable {
+        let method: MergeMethod?
+        let enabledBy: String?
+    }
+
+    /// Methods the repo allows, in GitHub's button order.
+    var allowedMethods: [MergeMethod]
+    /// The viewer's default on this repo (GitHub remembers the last one used).
+    var defaultMethod: MergeMethod?
+    var autoMergeAllowed: Bool
+    var canEnableAutoMerge: Bool
+    var canDisableAutoMerge: Bool
+    var mergeQueueEnabled: Bool
+    var queueEntry: QueueEntry?
+    var autoMerge: AutoMerge?
+    /// APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or nil when the repo
+    /// doesn't require reviews.
+    var reviewDecision: String?
+
+    /// Allowed methods with the user's remembered choice first, then the
+    /// repo default, then the rest.
+    func orderedMethods(preferred: MergeMethod) -> [MergeMethod] {
+        let allowed = allowedMethods.isEmpty ? MergeMethod.allCases : allowedMethods
+        let leading = [preferred, defaultMethod].compactMap { $0 }.filter(allowed.contains)
+        var seen = Set<MergeMethod>()
+        return (leading + allowed).filter { seen.insert($0).inserted }
+    }
+}
+
+/// What the detail pane's merge control should offer for a PR right now.
+enum MergeAction: Equatable {
+    /// Cleanly mergeable, no queue: merge immediately.
+    case merge
+    /// Ready, and the base branch uses a merge queue.
+    case enqueue
+    /// Not ready yet (CI running, reviews or branch pending) but could be:
+    /// let GitHub merge — or queue — it once requirements pass.
+    case enableAutoMerge
+    case queued(MergeInfo.QueueEntry)
+    case autoMergeEnabled(MergeInfo.AutoMerge)
+    case none
 }
 
 enum PRStatus: String, Codable, CaseIterable, Hashable {
@@ -312,6 +400,9 @@ struct PR: Identifiable, Hashable, Codable {
     /// flip draft / ready-for-review. Optional so cached blobs from before
     /// this field existed decode cleanly with `nil`; next sync fills it in.
     let nodeID: String?
+    /// Auto-merge / merge-queue state and repo merge settings. `var` with a
+    /// default so the memberwise init and older cached blobs don't need it.
+    var merge: MergeInfo? = nil
 
     /// Copy with a flipped draft flag. PR's fields are immutable, so the
     /// optimistic draft toggles in `Store` would otherwise re-list every
@@ -335,8 +426,34 @@ struct PR: Identifiable, Hashable, Codable {
             checks: checks,
             checkStatus: checkStatus,
             mergeableState: mergeableState,
-            nodeID: nodeID
+            nodeID: nodeID,
+            merge: merge
         )
+    }
+
+    /// Which merge control to show. An existing queue entry or auto-merge
+    /// request wins; otherwise ready PRs merge (or queue) directly and
+    /// not-yet-ready ones offer auto-merge. Drafts, conflicts and red CI get
+    /// nothing — those need the author, not a button.
+    var mergeAction: MergeAction {
+        if let entry = merge?.queueEntry { return .queued(entry) }
+        if let auto = merge?.autoMerge { return .autoMergeEnabled(auto) }
+        guard !isDraft, mergeableState != .dirty, checkStatus != .failure else { return .none }
+
+        if let m = merge, m.mergeQueueEnabled {
+            // The queue re-tests against the latest base, so `behind` is fine;
+            // what matters is CI settled and reviews not outstanding.
+            let reviewsOK = m.reviewDecision != "CHANGES_REQUESTED"
+                && m.reviewDecision != "REVIEW_REQUIRED"
+            if checkStatus != .pending && reviewsOK { return .enqueue }
+        } else if canMerge {
+            return .merge
+        }
+
+        if let m = merge, m.autoMergeAllowed, m.canEnableAutoMerge {
+            return .enableAutoMerge
+        }
+        return .none
     }
 
     /// True when this PR can be merged right now: not a draft, GitHub reports a

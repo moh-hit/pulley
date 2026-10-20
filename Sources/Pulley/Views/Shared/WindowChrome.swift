@@ -126,9 +126,7 @@ struct DetailActionButton: View {
         case .secondary:
             return hovering ? Color.primary.opacity(0.08) : Color.primary.opacity(0.03)
         case .merge:
-            // GitHub's merge-button purple.
-            let purple = Color(red: 0.52, green: 0.30, blue: 0.86)
-            return hovering ? purple.opacity(0.88) : purple
+            return hovering ? mergePurple.opacity(0.88) : mergePurple
         }
     }
 
@@ -145,5 +143,46 @@ struct DetailActionButton: View {
 
     private var textColor: Color {
         style == .secondary ? .primary : .white
+    }
+}
+
+/// List-row chip for a PR that's in the merge queue or has auto-merge on.
+/// Renders nothing otherwise, so callers can drop it in unconditionally.
+struct MergeFlowChip: View {
+    let pr: PR
+
+    var body: some View {
+        if let entry = pr.merge?.queueEntry {
+            chip(
+                icon: "list.number",
+                text: entry.position <= 1 ? "queued · next" : "queued · #\(entry.position)",
+                tint: entry.state == "UNMERGEABLE" ? .orange : mergePurple,
+                help: "In the merge queue — \(entry.summary)"
+            )
+        } else if let auto = pr.merge?.autoMerge {
+            chip(
+                icon: "clock.arrow.circlepath",
+                text: "auto-merge",
+                tint: mergePurple,
+                help: "Auto-merge on" + (auto.method.map { " (\($0.shortLabel))" } ?? "")
+                    + " — merges once requirements pass"
+            )
+        }
+    }
+
+    private func chip(icon: String, text: String, tint: Color, help: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+            Text(text)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+        }
+        .foregroundColor(tint)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(tint.opacity(0.10)))
+        .fixedSize()
+        .help(help)
     }
 }

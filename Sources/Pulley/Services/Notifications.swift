@@ -7,6 +7,8 @@ import AppKit
 ///   - new PR appears in the user's scope
 ///   - status flips to `.approved` or `.changes`
 ///   - CI flips to `.failure` or `.success`
+///   - a PR drops out of the merge queue, or its auto-merge is cancelled,
+///     without merging (still open)
 ///
 /// Tapping a notification opens the PR in the browser.
 @MainActor
@@ -23,6 +25,9 @@ final class NotificationsManager: NSObject {
         var status:         [String: String]   // PR.id -> PRStatus.rawValue
         var checkStatus:    [String: String]   // PR.id -> CheckStatus.rawValue
         var mergeableState: [String: String]   // PR.id -> MergeableState.rawValue
+        // Optional so v2 snapshots written before these existed still decode.
+        var queued:         Set<String>? = nil // PR.ids in a merge queue
+        var autoMerge:      Set<String>? = nil // PR.ids with auto-merge on
     }
 
     private override init() {
@@ -52,11 +57,15 @@ final class NotificationsManager: NSObject {
 
     /// Call once per successful sync. First call only seeds the snapshot
     /// (no notifications) so we don't spam the user on app launch.
-    func reconcile(_ prs: [PR]) {
+    /// `localMergeChanges` are PR ids whose queue / auto-merge state the user
+    /// just changed from Pulley — no point notifying them about their own click.
+    func reconcile(_ prs: [PR], localMergeChanges: Set<String> = []) {
         let newSnap = Snapshot(
             status:         Dictionary(uniqueKeysWithValues: prs.map { ($0.id, $0.status.rawValue) }),
             checkStatus:    Dictionary(uniqueKeysWithValues: prs.map { ($0.id, $0.checkStatus.rawValue) }),
-            mergeableState: Dictionary(uniqueKeysWithValues: prs.map { ($0.id, $0.mergeableState.rawValue) })
+            mergeableState: Dictionary(uniqueKeysWithValues: prs.map { ($0.id, $0.mergeableState.rawValue) }),
+            queued:         Set(prs.filter { $0.merge?.queueEntry != nil }.map(\.id)),
+            autoMerge:      Set(prs.filter { $0.merge?.autoMerge != nil }.map(\.id))
         )
 
         guard let oldSnap = loadSnapshot() else {
@@ -67,7 +76,7 @@ final class NotificationsManager: NSObject {
         // Notifications gated on authorization — we still update the snapshot
         // either way so a future grant doesn't trigger a backlog.
         if authorized {
-            diffAndPost(old: oldSnap, new: newSnap, prs: prs)
+            diffAndPost(old: oldSnap, new: newSnap, prs: prs, skipMergeFlow: localMergeChanges)
         }
         saveSnapshot(newSnap)
     }
@@ -79,7 +88,7 @@ final class NotificationsManager: NSObject {
 
     // MARK: - Internals
 
-    private func diffAndPost(old: Snapshot, new: Snapshot, prs: [PR]) {
+    private func diffAndPost(old: Snapshot, new: Snapshot, prs: [PR], skipMergeFlow: Set<String>) {
         for pr in prs {
             let oldStatus      = old.status[pr.id]
             let oldCheckStatus = old.checkStatus[pr.id]
@@ -130,6 +139,20 @@ final class NotificationsManager: NSObject {
                newMergeable != MergeableState.unknown.rawValue {
                 if pr.mergeableState == .dirty {
                     post(title: "Conflicts · \(pr.repo)", body: pr.title, pr: pr)
+                }
+            }
+
+            // 5) Merge flow ended without a merge. The PR is still in this
+            //    (open-only) list, so leaving the queue or losing auto-merge
+            //    means GitHub kicked it out or someone cancelled it. Auto-merge
+            //    handing off to the queue is progress, not a cancellation.
+            if !skipMergeFlow.contains(pr.id) {
+                let isQueued = pr.merge?.queueEntry != nil
+                if old.queued?.contains(pr.id) == true, !isQueued {
+                    post(title: "Removed from merge queue · \(pr.repo)", body: pr.title, pr: pr)
+                } else if old.autoMerge?.contains(pr.id) == true,
+                          pr.merge?.autoMerge == nil, !isQueued {
+                    post(title: "Auto-merge disabled · \(pr.repo)", body: pr.title, pr: pr)
                 }
             }
         }

@@ -17,7 +17,14 @@ private struct GHUser: Decodable {
 /// that aren't PRs decode as empty objects, so every field is optional and
 /// the mapper drops nodes without a `number`.
 private struct GQLPRNode: Decodable {
-    struct Repo: Decodable { let name: String }
+    struct Repo: Decodable {
+        let name: String
+        let squashMergeAllowed: Bool?
+        let mergeCommitAllowed: Bool?
+        let rebaseMergeAllowed: Bool?
+        let autoMergeAllowed: Bool?
+        let viewerDefaultMergeMethod: String?
+    }
     struct Actor: Decodable { let login: String }
     struct Assignees: Decodable { let nodes: [Actor] }
     /// Union of `CheckRun` and `StatusContext` from `statusCheckRollup`.
@@ -60,7 +67,46 @@ private struct GQLPRNode: Decodable {
     let repository: Repo?
     let assignees: Assignees?
     let commits: Commits?
+    let reviewDecision: String?
+    let isMergeQueueEnabled: Bool?
+    let viewerCanEnableAutoMerge: Bool?
+    let viewerCanDisableAutoMerge: Bool?
+    let mergeQueueEntry: GQLQueueEntry?
+    let autoMergeRequest: GQLAutoMerge?
 }
+
+/// `MergeQueueEntry` subset — shared by the search query and the enqueue
+/// mutation's payload.
+private struct GQLQueueEntry: Decodable {
+    let position: Int?
+    let state: String?
+    let estimatedTimeToMerge: Int?
+
+    var model: MergeInfo.QueueEntry {
+        MergeInfo.QueueEntry(
+            position: position ?? 0,
+            state: state ?? "QUEUED",
+            estimatedSecondsToMerge: estimatedTimeToMerge
+        )
+    }
+}
+
+/// `AutoMergeRequest` subset — shared by the search query and the
+/// enable-auto-merge mutation's payload.
+private struct GQLAutoMerge: Decodable {
+    struct Actor: Decodable { let login: String }
+    let mergeMethod: String?
+    let enabledBy: Actor?
+
+    var model: MergeInfo.AutoMerge {
+        MergeInfo.AutoMerge(method: MergeMethod(graphQL: mergeMethod), enabledBy: enabledBy?.login)
+    }
+}
+
+/// Selection sets reused by the search query and the merge mutations, so
+/// the decoded shapes can't drift apart.
+private let gqlQueueEntryFields = "position state estimatedTimeToMerge"
+private let gqlAutoMergeFields  = "mergeMethod enabledBy { login }"
 
 private struct GQLSearch: Decodable {
     struct Result: Decodable { let nodes: [GQLPRNode] }
@@ -348,6 +394,81 @@ struct GitHubClient: Sendable {
         try await graphql(query: mutation, variables: ["id": nodeID])
     }
 
+    /// Turn on auto-merge: GitHub merges (or, on a merge-queue branch, queues)
+    /// the PR once its requirements pass. `method` is omitted for queue
+    /// branches, where the queue's own setting decides. `expectedHeadOid`
+    /// pins it to the commit we showed, like the direct merge's `sha`.
+    func enableAutoMerge(
+        nodeID: String, method: MergeMethod?, expectedHeadOid: String
+    ) async throws -> MergeInfo.AutoMerge? {
+        struct Payload: Decodable {
+            struct PR: Decodable { let autoMergeRequest: GQLAutoMerge? }
+            struct Result: Decodable { let pullRequest: PR? }
+            let enablePullRequestAutoMerge: Result
+        }
+        var input = "pullRequestId: $id"
+        var variables: [String: Any] = ["id": nodeID]
+        if !expectedHeadOid.isEmpty {
+            input += ", expectedHeadOid: $oid"
+            variables["oid"] = expectedHeadOid
+        }
+        if let method {
+            input += ", mergeMethod: \(method.graphQLValue)"
+        }
+        let args = expectedHeadOid.isEmpty ? "$id: ID!" : "$id: ID!, $oid: GitObjectID!"
+        let query = """
+        mutation(\(args)) {
+          enablePullRequestAutoMerge(input: {\(input)}) {
+            pullRequest { autoMergeRequest { \(gqlAutoMergeFields) } }
+          }
+        }
+        """
+        let resp: Payload = try await graphqlFetch(query: query, variables: variables)
+        return resp.enablePullRequestAutoMerge.pullRequest?.autoMergeRequest?.model
+    }
+
+    func disableAutoMerge(nodeID: String) async throws {
+        try await graphql(
+            query: "mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }",
+            variables: ["id": nodeID]
+        )
+    }
+
+    /// Add a ready PR to its base branch's merge queue. Returns the new entry
+    /// so the UI can show the position without waiting for a sync.
+    func enqueue(nodeID: String, expectedHeadOid: String) async throws -> MergeInfo.QueueEntry? {
+        struct Payload: Decodable {
+            struct Result: Decodable { let mergeQueueEntry: GQLQueueEntry? }
+            let enqueuePullRequest: Result
+        }
+        var variables: [String: Any] = ["id": nodeID]
+        let query: String
+        if expectedHeadOid.isEmpty {
+            query = """
+            mutation($id: ID!) {
+              enqueuePullRequest(input: {pullRequestId: $id}) { mergeQueueEntry { \(gqlQueueEntryFields) } }
+            }
+            """
+        } else {
+            variables["oid"] = expectedHeadOid
+            query = """
+            mutation($id: ID!, $oid: GitObjectID!) {
+              enqueuePullRequest(input: {pullRequestId: $id, expectedHeadOid: $oid}) { mergeQueueEntry { \(gqlQueueEntryFields) } }
+            }
+            """
+        }
+        let resp: Payload = try await graphqlFetch(query: query, variables: variables)
+        return resp.enqueuePullRequest.mergeQueueEntry?.model
+    }
+
+    /// Remove a PR from the merge queue. The input's `id` is the PR's node ID.
+    func dequeue(nodeID: String) async throws {
+        try await graphql(
+            query: "mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { clientMutationId } }",
+            variables: ["id": nodeID]
+        )
+    }
+
     /// Merge a PR via `PUT /repos/{owner}/{repo}/pulls/{n}/merge`. `sha` pins
     /// the merge to the head commit we last saw, so a push that lands between
     /// fetch and merge is rejected (409) instead of silently merging newer
@@ -554,8 +675,14 @@ struct GitHubClient: Sendable {
         nodes {
           ... on PullRequest {
             id number title url isDraft headRefName headRefOid mergeStateStatus
-            createdAt updatedAt
-            repository { name }
+            createdAt updatedAt reviewDecision
+            isMergeQueueEnabled viewerCanEnableAutoMerge viewerCanDisableAutoMerge
+            mergeQueueEntry { \(gqlQueueEntryFields) }
+            autoMergeRequest { \(gqlAutoMergeFields) }
+            repository {
+              name squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed
+              autoMergeAllowed viewerDefaultMergeMethod
+            }
             assignees(first: 1) { nodes { login } }
             commits(last: 1) {
               nodes {
@@ -690,7 +817,29 @@ struct GitHubClient: Sendable {
             checks: checks,
             checkStatus: rollupChecks(checks),
             mergeableState: mergeable,
-            nodeID: node.id
+            nodeID: node.id,
+            merge: mergeInfo(for: node)
+        )
+    }
+
+    private static func mergeInfo(for node: GQLPRNode) -> MergeInfo {
+        let r = node.repository
+        // GitHub's own button order. A repo field missing from the response
+        // (nil) counts as allowed so we never hide every option.
+        var allowed: [MergeMethod] = []
+        if r?.mergeCommitAllowed ?? true { allowed.append(.merge) }
+        if r?.squashMergeAllowed ?? true { allowed.append(.squash) }
+        if r?.rebaseMergeAllowed ?? true { allowed.append(.rebase) }
+        return MergeInfo(
+            allowedMethods: allowed,
+            defaultMethod: MergeMethod(graphQL: r?.viewerDefaultMergeMethod),
+            autoMergeAllowed: r?.autoMergeAllowed ?? false,
+            canEnableAutoMerge: node.viewerCanEnableAutoMerge ?? false,
+            canDisableAutoMerge: node.viewerCanDisableAutoMerge ?? false,
+            mergeQueueEnabled: node.isMergeQueueEnabled ?? false,
+            queueEntry: node.mergeQueueEntry?.model,
+            autoMerge: node.autoMergeRequest?.model,
+            reviewDecision: node.reviewDecision
         )
     }
 }
