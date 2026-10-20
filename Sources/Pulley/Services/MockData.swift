@@ -99,10 +99,17 @@ enum MockData {
                 checkStatus: spec.checkStatus,
                 mergeableState: spec.mergeableState,
                 nodeID: nil,
-                merge: mergeInfo(for: spec)
+                merge: mergeInfo(for: spec),
+                stack: stacks[spec.number]
             )
         }
     }
+
+    /// The pricing hero and checkout reducer refactor form a two-PR stack.
+    private static let stacks: [Int: StackInfo] = [
+        1207: StackInfo(number: 41, size: 2, position: 1),
+        1211: StackInfo(number: 41, size: 2, position: 2),
+    ]
 
     private static func mergeInfo(for spec: Spec) -> MergeInfo {
         MergeInfo(

@@ -6,7 +6,7 @@ loosely tracks [SemVer](https://semver.org/spec/v2.0.0.html) — patches
 for bugs, minor bumps for new features, major bumps for breaking changes
 to settings shape or filesystem layout.
 
-## [Unreleased]
+## [1.10.0] - 2026-10-20
 
 ### Added
 - **Merge when ready.** When a PR isn't mergeable yet (CI running,
@@ -34,6 +34,15 @@ to settings shape or filesystem layout.
 - Review comments from bots (Copilot, CodeRabbit, …) collapse to a
   one-line summary with a `bot` tag, so people's comments stand out.
   Click one to expand it.
+- **Stacked pull requests.** PRs in a native GitHub stack get a
+  `2/3` chip in the list and a stack bar in the detail pane
+  (**Stack · 2 of 3** with a `#26 › #27 › #29` breadcrumb showing each
+  PR's state). Click an entry to jump to it.
+- **Merge a stack in one go.** On a stacked PR, **Merge N PRs** merges it
+  together with every open PR below it, atomically. It goes through
+  GitHub's async merge API — the only one that supports stacks — and
+  Pulley follows the request until it merges, queues or fails. Merge
+  queue branches queue the whole stack as one group.
 
 ### Changed
 - The merge confirmation only offers the methods the repo allows
@@ -318,7 +327,8 @@ to settings shape or filesystem layout.
 - Tag-push release pipeline (`.github/workflows/release.yml`) that
   builds an ad-hoc-signed DMG.
 
-[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/moh-hit/pulley/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/moh-hit/pulley/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/moh-hit/pulley/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/moh-hit/pulley/compare/v1.6.1...v1.7.0

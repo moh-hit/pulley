@@ -73,6 +73,10 @@ private struct GQLPRNode: Decodable {
     let viewerCanDisableAutoMerge: Bool?
     let mergeQueueEntry: GQLQueueEntry?
     let autoMergeRequest: GQLAutoMerge?
+    struct Stack: Decodable { let number: Int; let size: Int }
+    struct StackPosition: Decodable { let position: Int }
+    let stack: Stack?
+    let stackEntry: StackPosition?
 }
 
 /// `MergeQueueEntry` subset — shared by the search query and the enqueue
@@ -457,6 +461,102 @@ struct GitHubClient: Sendable {
         )
     }
 
+    /// Every PR in the stack this PR belongs to, bottom first.
+    func fetchStackEntries(org: String, repo: String, number: Int) async throws -> [StackEntry] {
+        struct Payload: Decodable {
+            struct EntryPR: Decodable {
+                let number: Int; let title: String; let state: String
+                let isDraft: Bool; let url: URL
+            }
+            struct Entry: Decodable { let position: Int; let pullRequest: EntryPR? }
+            struct Entries: Decodable { let nodes: [Entry] }
+            struct Stack: Decodable { let entries: Entries }
+            struct PR: Decodable { let stack: Stack? }
+            struct Repo: Decodable { let pullRequest: PR? }
+            let repository: Repo?
+        }
+        let query = """
+        query($o: String!, $r: String!, $n: Int!) {
+          repository(owner: $o, name: $r) {
+            pullRequest(number: $n) {
+              stack {
+                entries(first: 50) {
+                  nodes { position pullRequest { number title state isDraft url } }
+                }
+              }
+            }
+          }
+        }
+        """
+        let resp: Payload = try await graphqlFetch(
+            query: query, variables: ["o": org, "r": repo, "n": number]
+        )
+        let nodes = resp.repository?.pullRequest?.stack?.entries.nodes ?? []
+        return nodes.compactMap { e in
+            e.pullRequest.map {
+                StackEntry(position: e.position, number: $0.number, title: $0.title,
+                           state: $0.state, isDraft: $0.isDraft, url: $0.url)
+            }
+        }
+        .sorted { $0.position < $1.position }
+    }
+
+    /// Submit an async merge (`PUT …/merge-async`). Unlike the classic merge
+    /// endpoint this handles stacks — every open PR below this one merges
+    /// (or queues) with it, atomically. `action` is `default` (queue if the
+    /// branch has one, else direct), `direct_merge`, or `merge_queue`.
+    /// `method` only applies to direct merges.
+    func mergeAsync(
+        org: String, repo: String, number: Int,
+        method: MergeMethod?, action: String, sha: String
+    ) async throws -> AsyncMergeResult {
+        var req = request("/repos/\(org)/\(repo)/pulls/\(number)/merge-async")
+        req.httpMethod = "PUT"
+        req.setValue("2026-03-10", forHTTPHeaderField: "X-GitHub-Api-Version")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload: [String: Any] = ["merge_action": action]
+        if let method { payload["merge_method"] = method.rawValue }
+        if !sha.isEmpty { payload["sha"] = sha }
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        return try Self.decodeAsyncMerge(data: data, resp: resp, submitting: true)
+    }
+
+    /// Poll an async merge started with `mergeAsync`.
+    func mergeAsyncStatus(org: String, repo: String, number: Int, uuid: String) async throws -> AsyncMergeResult {
+        var req = request("/repos/\(org)/\(repo)/pulls/\(number)/merge-async/\(uuid)")
+        req.setValue("2026-03-10", forHTTPHeaderField: "X-GitHub-Api-Version")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        return try Self.decodeAsyncMerge(data: data, resp: resp, submitting: false)
+    }
+
+    /// `{status, details{message, uuid, sha, …}}`. On submit, 409 means a
+    /// merge for this PR is already pending — its body carries that
+    /// request's uuid, so we just follow it.
+    private static func decodeAsyncMerge(data: Data, resp: URLResponse, submitting: Bool) throws -> AsyncMergeResult {
+        struct Details: Decodable { let message: String?; let uuid: String? }
+        struct Body: Decodable { let status: String?; let details: Details?; let message: String? }
+        guard let http = resp as? HTTPURLResponse else {
+            throw GitHubError(message: "No HTTP response")
+        }
+        let body = try? JSONDecoder().decode(Body.self, from: data)
+        let message = body?.details?.message ?? body?.message
+        let ok = (200..<300).contains(http.statusCode) || (submitting && http.statusCode == 409)
+        guard ok else {
+            throw GitHubError(message: message ?? "Merge failed (HTTP \(http.statusCode))")
+        }
+        switch body?.status {
+        case "merged":   return .merged
+        case "enqueued": return .enqueued
+        case "failed":   return .failed(message ?? "GitHub couldn't merge this PR")
+        default:
+            guard let uuid = body?.details?.uuid else {
+                throw GitHubError(message: message ?? "Merge request accepted, but GitHub returned no status")
+            }
+            return .pending(uuid: uuid)
+        }
+    }
+
     /// Turn on auto-merge: GitHub merges (or, on a merge-queue branch, queues)
     /// the PR once its requirements pass. `method` is omitted for queue
     /// branches, where the queue's own setting decides. `expectedHeadOid`
@@ -742,6 +842,8 @@ struct GitHubClient: Sendable {
             isMergeQueueEnabled viewerCanEnableAutoMerge viewerCanDisableAutoMerge
             mergeQueueEntry { \(gqlQueueEntryFields) }
             autoMergeRequest { \(gqlAutoMergeFields) }
+            stack { number size }
+            stackEntry { position }
             repository {
               name squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed
               autoMergeAllowed viewerDefaultMergeMethod
@@ -881,7 +983,10 @@ struct GitHubClient: Sendable {
             checkStatus: rollupChecks(checks),
             mergeableState: mergeable,
             nodeID: node.id,
-            merge: mergeInfo(for: node)
+            merge: mergeInfo(for: node),
+            stack: node.stack.flatMap { s in
+                node.stackEntry.map { StackInfo(number: s.number, size: s.size, position: $0.position) }
+            }
         )
     }
 

@@ -186,3 +186,25 @@ struct MergeFlowChip: View {
         .help(help)
     }
 }
+
+/// List-row chip for a PR in a native GitHub stack: "stack 2/3".
+struct StackChip: View {
+    let pr: PR
+
+    var body: some View {
+        if let stack = pr.stack {
+            HStack(spacing: 3) {
+                Image(systemName: "square.stack.3d.up")
+                    .font(.system(size: 9, weight: .semibold))
+                Text("\(stack.position)/\(stack.size)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+            }
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(0.06)))
+            .fixedSize()
+            .help("Stack #\(stack.number) — PR \(stack.position) of \(stack.size)")
+        }
+    }
+}

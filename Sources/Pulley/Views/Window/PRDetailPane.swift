@@ -44,6 +44,10 @@ struct PRDetailPane: View {
     @State private var copilotReloadToken = 0
     @State private var copilotRequesting = false
     @State private var copilotError: String? = nil
+
+    // Stack bar entries, fetched when a stacked PR is shown.
+    @State private var stackEntries: [StackEntry] = []
+    @State private var stackReloadToken = 0
     /// Current user's login, used to attribute optimistically-shown comments
     /// until the real fetch (with avatar) catches up.
     @State private var myLogin: String? = nil
@@ -79,6 +83,9 @@ struct PRDetailPane: View {
             // active.
             VStack(alignment: .leading, spacing: 16) {
                 header
+                if pr.stack != nil {
+                    stackBar
+                }
                 statusRow
                 if pr.mergeableState == .dirty {
                     ConflictBanner()
@@ -108,6 +115,7 @@ struct PRDetailPane: View {
             loadFiles()
             loadReviewComments()
             loadCopilotReview()
+            loadStackEntries()
             if myLogin == nil { loadMyLogin() }
             syncFullScreen()
         }
@@ -118,6 +126,7 @@ struct PRDetailPane: View {
             copilotError = nil
             copilotRequesting = false
             loadCopilotReview()
+            loadStackEntries()
             // Reset per-PR transient state so the textarea / error from one
             // PR doesn't leak into the next selection.
             reviewBody = ""
@@ -649,7 +658,10 @@ struct PRDetailPane: View {
     private var mergeButton: some View {
         switch pr.mergeAction {
         case .merge:
-            mergeFlowButton(title: "Merge", help: "Merge this PR")
+            mergeFlowButton(
+                title: openDownstack.isEmpty ? "Merge" : "Merge \(openDownstack.count + 1) PRs",
+                help: openDownstack.isEmpty ? "Merge this PR" : "Merge this PR and the open PRs below it in the stack"
+            )
                 .confirmationDialog(
                     "Merge \(pr.repo)#\(pr.number)?",
                     isPresented: $showMergeConfirm,
@@ -658,12 +670,16 @@ struct PRDetailPane: View {
                     ForEach(mergeMethods) { method in
                         Button(method.label) {
                             Config.mergeMethod = method
-                            merge(method: method)
+                            if pr.stack != nil {
+                                mergeAsync(method: method, action: "direct_merge")
+                            } else {
+                                merge(method: method)
+                            }
                         }
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text(pr.title)
+                    Text(stackMergeNote ?? pr.title)
                 }
 
         case .enqueue:
@@ -673,10 +689,17 @@ struct PRDetailPane: View {
                     isPresented: $showMergeConfirm,
                     titleVisibility: .visible
                 ) {
-                    Button("Add to merge queue") { enqueue() }
+                    Button("Add to merge queue") {
+                        if pr.stack != nil {
+                            mergeAsync(method: nil, action: "merge_queue")
+                        } else {
+                            enqueue()
+                        }
+                    }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("It merges once it passes checks against the latest \(pr.repo) base.")
+                    Text(stackMergeNote
+                         ?? "It merges once it passes checks against the latest \(pr.repo) base.")
                 }
 
         case .enableAutoMerge:
@@ -769,6 +792,56 @@ struct PRDetailPane: View {
         if pr.mergeableState == .behind { waits.append("the branch is up to date") }
         guard !waits.isEmpty else { return "GitHub merges it once branch requirements pass." }
         return "GitHub merges it once " + waits.joined(separator: " and ") + "."
+    }
+
+    /// Open PRs below this one in its stack — they merge together with it.
+    private var openDownstack: [StackEntry] {
+        guard let position = pr.stack?.position else { return [] }
+        return stackEntries.filter { $0.position < position && $0.state == "OPEN" }
+    }
+
+    /// Confirmation text spelling out what else merges along with this PR.
+    private var stackMergeNote: String? {
+        guard !openDownstack.isEmpty else { return nil }
+        let list = openDownstack.map { "#\($0.number)" }.joined(separator: ", ")
+        return "Merges \(list) and #\(pr.number) together — all of them or none."
+    }
+
+    /// "STACK #28 · 2 of 3" with a breadcrumb of every PR in it. Clicking an
+    /// entry selects it if it's in the list, otherwise opens it on GitHub.
+    private var stackBar: some View {
+        HStack(spacing: 8) {
+            if let stack = pr.stack {
+                Label("Stack · \(stack.position) of \(stack.size)", systemImage: "square.stack.3d.up")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .fixedSize()
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(Array(stackEntries.enumerated()), id: \.element.id) { idx, entry in
+                        if idx > 0 {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundColor(.secondary.opacity(0.5))
+                        }
+                        StackEntryChip(entry: entry, isCurrent: entry.number == pr.number) {
+                            openStackEntry(entry)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func openStackEntry(_ entry: StackEntry) {
+        guard entry.number != pr.number else { return }
+        let id = "\(pr.org)/\(pr.repo)#\(entry.number)"
+        if store.prs.contains(where: { $0.id == id }) {
+            NotificationCenter.default.post(name: .pulleySelectPR, object: id)
+        } else {
+            PRActions.openInBrowser(entry.url)
+        }
     }
 
     private var reviewSection: some View {
@@ -987,6 +1060,67 @@ struct PRDetailPane: View {
                     // Re-sync so the merged PR drops out of the list and the
                     // badge updates. The detail pane's selection clears when
                     // its PR disappears from the store.
+                    self.store.sync()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionError = error.localizedDescription
+                    self.inflightAction = nil
+                }
+            }
+        }
+    }
+
+    private func loadStackEntries() {
+        stackReloadToken += 1
+        let token = stackReloadToken
+        stackEntries = []
+        guard pr.stack != nil, let client = Config.makeClient() else { return }
+        let org = pr.org, repo = pr.repo, number = pr.number
+        Task {
+            let entries = (try? await client.fetchStackEntries(org: org, repo: repo, number: number)) ?? []
+            await MainActor.run {
+                guard self.stackReloadToken == token else { return }
+                self.stackEntries = entries
+            }
+        }
+    }
+
+    /// Merge through the async merge API — required for stacked PRs, where
+    /// everything open below this PR merges (or queues) with it. Polls the
+    /// request for up to ~90s; GitHub keeps going if we stop watching.
+    private func mergeAsync(method: MergeMethod?, action: String) {
+        guard let client = Config.makeClient() else {
+            actionError = "Token not configured."
+            return
+        }
+        inflightAction = .merge
+        actionError = nil
+        let org = pr.org, repo = pr.repo, number = pr.number, sha = pr.headSha
+        Task {
+            do {
+                var result = try await client.mergeAsync(
+                    org: org, repo: repo, number: number,
+                    method: method, action: action, sha: sha
+                )
+                var polls = 0
+                while case .pending(let uuid) = result, polls < 45 {
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                    polls += 1
+                    result = try await client.mergeAsyncStatus(
+                        org: org, repo: repo, number: number, uuid: uuid
+                    )
+                }
+                await MainActor.run {
+                    self.inflightAction = nil
+                    switch result {
+                    case .failed(let message):
+                        self.actionError = message
+                    case .pending:
+                        self.actionError = "GitHub is still merging — it'll drop off the list when done."
+                    case .merged, .enqueued:
+                        break
+                    }
                     self.store.sync()
                 }
             } catch {
@@ -2680,5 +2814,56 @@ private struct MergeFlowStatus: View {
                 .stroke(tint.opacity(0.30), lineWidth: 0.7)
         )
         .fixedSize()
+    }
+}
+
+/// One PR in the detail pane's stack breadcrumb.
+private struct StackEntryChip: View {
+    let entry: StackEntry
+    let isCurrent: Bool
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: glyph)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(tint)
+                Text("#\(entry.number)")
+                    .font(.system(size: 11, weight: isCurrent ? .semibold : .medium, design: .monospaced))
+                    .foregroundColor(isCurrent ? .primary : .secondary)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.primary.opacity(isCurrent ? 0.09 : (hovered ? 0.06 : 0.03)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(isCurrent ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 0.8)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help("\(entry.position). \(entry.title)" + (entry.state == "OPEN" ? "" : " (\(entry.state.lowercased()))"))
+    }
+
+    private var glyph: String {
+        switch entry.state {
+        case "MERGED": return "checkmark.circle.fill"
+        case "CLOSED": return "xmark.circle"
+        default:       return entry.isDraft ? "circle.dashed" : "circle"
+        }
+    }
+
+    private var tint: Color {
+        switch entry.state {
+        case "MERGED": return mergePurple
+        case "CLOSED": return .secondary
+        default:       return .green
+        }
     }
 }

@@ -18,6 +18,8 @@ extension Notification.Name {
     static let pulleyToggleSelectedExpand  = Notification.Name("PulleyToggleSelectedExpand")
     static let pulleyFocusSearch           = Notification.Name("PulleyFocusSearch")
     static let pulleyOpenSettings          = Notification.Name("PulleyOpenSettings")
+    /// Select a PR in the main window; `object` is the PR id.
+    static let pulleySelectPR              = Notification.Name("PulleySelectPR")
     /// Posted from popover to ask the AppDelegate to open the main window.
     static let pulleyOpenMainWindow        = Notification.Name("PulleyOpenMainWindow")
 

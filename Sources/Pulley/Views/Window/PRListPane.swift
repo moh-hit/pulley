@@ -257,6 +257,7 @@ private struct WindowPRRow: View {
                     mergeChip
                 }
                 MergeFlowChip(pr: pr)
+                StackChip(pr: pr)
                 if pr.isDraft {
                     draftChip
                 }
