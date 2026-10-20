@@ -25,13 +25,13 @@ struct PRListPane: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Icon("tray", size: 32)
-                .foregroundColor(.secondary.opacity(0.45))
+                .foregroundColor(.secondary)
             Text("Nothing here")
                 .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
             Text("Try a different filter or sync.")
                 .font(Theme.ui(11))
-                .foregroundColor(.secondary.opacity(0.7))
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -52,7 +52,7 @@ struct PRListPane: View {
                         )
 .id(pr.id)
                         if idx < prs.count - 1 {
-                            Divider().opacity(0.35).padding(.leading, 18)
+                            Rectangle().fill(Theme.hairline).frame(height: 1).padding(.leading, 18)
                         }
                     }
                 } else {
@@ -66,7 +66,7 @@ struct PRListPane: View {
                                 )
 .id(pr.id)
                                 if idx < group.prs.count - 1 {
-                                    Divider().opacity(0.35).padding(.leading, 18)
+                                    Rectangle().fill(Theme.hairline).frame(height: 1).padding(.leading, 18)
                                 }
                             }
                         } header: {
@@ -96,12 +96,11 @@ struct PRListPane: View {
                 .fill(groupAccent(group))
                 .frame(width: 7, height: 7)
             Text(group.label)
-                .font(Theme.mono(12, .semibold))
-                .tracking(0.6)
-                .foregroundColor(.primary.opacity(0.9))
+                .font(Theme.ui(12, .medium))
+                .foregroundColor(.primary)
                 .lineLimit(1)
             Text("\(group.prs.count)")
-                .font(Theme.mono(10, .medium))
+                .font(Theme.mono(11, .medium))
                 .foregroundColor(.secondary.opacity(0.8))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1.5)
@@ -252,15 +251,22 @@ private struct WindowPRRow: View {
                     .layoutPriority(1)
                     .help(pr.title)
 
-                actionStrip
-                    .opacity(actionsVisible ? 1 : 0)
-                    .allowsHitTesting(actionsVisible)
-
                 Text(relativeTime(pr.updatedAt))
                     .font(Theme.mono(11))
                     .foregroundColor(.secondary.opacity(0.85))
                     .frame(width: 44, alignment: .trailing)
                     .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+            }
+            // Hover / selection actions sit over the end of the title rather
+            // than reserving width for it, so long titles keep their room.
+            .overlay(alignment: .trailing) {
+                actionStrip
+                    .padding(.leading, 12)
+                    // Opaque under the row tint, so the title doesn't show through.
+                    .background(Theme.panel.overlay(rowBackground))
+                    .padding(.trailing, 54)
+                    .opacity(actionsVisible ? 1 : 0)
+                    .allowsHitTesting(actionsVisible)
             }
 
             // Scan line: where it lives and, at most, the one thing that
@@ -270,7 +276,7 @@ private struct WindowPRRow: View {
                 repoLabel
                 Text("#\(String(pr.number))")
                     .font(Theme.mono(11))
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .foregroundColor(.secondary)
                     .lineLimit(1)
                     .fixedSize()
                 Spacer(minLength: 0)
@@ -288,7 +294,7 @@ private struct WindowPRRow: View {
 
     private var repoLabel: some View {
         HStack(spacing: 4) {
-            (Text(pr.org + "/").foregroundColor(.secondary.opacity(0.6))
+            (Text(pr.org + "/").foregroundColor(.secondary)
              + Text(pr.repo).foregroundColor(.secondary))
                 .font(Theme.mono(11, .regular))
                 .lineLimit(1)
@@ -304,7 +310,7 @@ private struct WindowPRRow: View {
             RowIconButton(
                 icon: "doc.on.doc",
                 help: copied ? "Copied" : "Copy branch",
-                tint: copied ? .green : nil,
+                tint: copied ? .primary : nil,
                 disabled: pr.branch.isEmpty
             ) {
                 PRActions.copyToPasteboard(pr.branch)

@@ -100,7 +100,7 @@ enum Theme {
         light: .white,
         dark: NSColor(srgbRed: 0.153, green: 0.149, blue: 0.145, alpha: 1)
     )
-    static let hairline = Color.primary.opacity(0.08)
+    static let hairline = Color.primary.opacity(0.10)
     static let selection = Color.primary.opacity(0.07)
     static let hover = Color.primary.opacity(0.04)
 
@@ -144,6 +144,16 @@ enum Theme {
         Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
         })
+    }
+}
+
+extension Text {
+    /// The one small-caps-style label used for section eyebrows everywhere
+    /// (detail sections, Home day headers, Settings groups).
+    func eyebrow() -> some View {
+        self.font(Theme.ui(11, .medium))
+            .tracking(0.6)
+            .foregroundColor(.secondary)
     }
 }
 

@@ -157,7 +157,7 @@ struct MainWindowView: View {
             VStack(spacing: 0) {
                 if !(diffFullScreen && selectedPR != nil) {
                     PanelHeader(
-                        title: filter.label,
+                        title: filter == .all ? "All pull requests" : filter.label,
                         subtitle: "\(filtered.count) pull request\(filtered.count == 1 ? "" : "s")",
                         query: $query,
                         searchPrompt: "Search pull requests",

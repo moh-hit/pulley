@@ -41,7 +41,7 @@ struct SettingsView: View {
             // Top bar
             HStack(spacing: 10) {
                 Icon("gearshape.fill", size: 14)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(.secondary)
                 Text("Settings")
                     .font(Theme.ui(14, .semibold))
                 Spacer()
@@ -278,11 +278,9 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Icon(icon, size: 10)
-                Text(title)
-                    .font(Theme.mono(10, .semibold))
-                    .tracking(0.8)
+                Text(title).eyebrow()
             }
-            .foregroundColor(.accentColor)
+            .foregroundColor(.secondary)
             content()
         }
         .padding(14)
@@ -329,7 +327,7 @@ struct SettingsView: View {
 
     private func caption(_ s: String) -> some View {
         Text(s)
-            .font(Theme.ui(10))
+            .font(Theme.ui(11))
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -382,7 +380,7 @@ struct SettingsView: View {
             .animation(.easeInOut(duration: 0.16), value: tokenHelpKind)
 
             Text("Then paste it above and Save — stored only in your macOS Keychain.")
-                .font(Theme.ui(9.5))
+                .font(Theme.ui(11))
                 .foregroundColor(.secondary.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -402,7 +400,7 @@ struct SettingsView: View {
     private var classicHelp: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Full access, including the Inbox. Scopes to tick:")
-                .font(Theme.ui(10))
+                .font(Theme.ui(11))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 5) {
@@ -412,7 +410,7 @@ struct SettingsView: View {
             }
             createTokenButton("Open GitHub — scopes pre-filled", url: classicTokenURL)
             Text("`notifications` is optional — it powers the Inbox tab.")
-                .font(Theme.ui(9.5))
+                .font(Theme.ui(11))
                 .foregroundColor(.secondary.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -421,19 +419,19 @@ struct SettingsView: View {
     private var fineGrainedHelp: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Per-repo access; no Inbox. Set these permissions:")
-                .font(Theme.ui(10))
+                .font(Theme.ui(11))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 3) {
                 Text("**Read & write** — Pull requests, Contents, Checks, Actions")
                 Text("**Read** — Commit statuses")
             }
-            .font(Theme.ui(10))
+            .font(Theme.ui(11))
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             createTokenButton("Open GitHub", url: fineGrainedTokenURL)
             Text("Under Repository access, pick the repos in your orgs. Metadata: Read is automatic.")
-                .font(Theme.ui(9.5))
+                .font(Theme.ui(11))
                 .foregroundColor(.secondary.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -441,7 +439,7 @@ struct SettingsView: View {
 
     private func scopeChip(_ s: String) -> some View {
         Text(s)
-            .font(Theme.mono(9.5, .semibold))
+            .font(Theme.mono(11, .semibold))
             .foregroundColor(.primary.opacity(0.85))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -455,7 +453,7 @@ struct SettingsView: View {
             HStack(spacing: 5) {
                 Icon("arrow.up.forward.square", size: 10)
                 Text(title)
-                    .font(Theme.ui(10.5, .medium))
+                    .font(Theme.ui(11, .medium))
             }
         }
         .controlSize(.small)

@@ -46,6 +46,8 @@ struct SidebarView: View {
                 .padding(.bottom, 12)
             }
 
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: collapsed ? .center : .leading, spacing: 2) {
             SidebarItem(
                 title: "Home", icon: "house",
                 isSelected: section == .home, collapsed: collapsed, shortcut: "1"
@@ -89,8 +91,10 @@ struct SidebarView: View {
                     ) { section = .prs(.org(org.name)) }
                 }
             }
+                }
+            }
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 8)
 
             syncRow
             SidebarItem(title: "Settings", icon: "gearshape", isSelected: false, collapsed: collapsed, action: onOpenSettings)

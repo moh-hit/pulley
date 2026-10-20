@@ -211,11 +211,11 @@ struct PRDetailPane: View {
         Button { tab = t } label: {
             HStack(spacing: 6) {
                 Text(label)
-                    .font(Theme.ui(12.5, selected ? .semibold : .regular))
+                    .font(Theme.ui(12, selected ? .semibold : .regular))
                     .foregroundColor(selected ? .primary : .secondary)
                 if let count {
                     Text("\(count)\(t == .files && filesCapped ? "+" : "")")
-                        .font(Theme.mono(10, .semibold))
+                        .font(Theme.mono(11, .semibold))
                         .foregroundColor(selected ? .primary.opacity(0.85) : .secondary.opacity(0.7))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -266,10 +266,7 @@ struct PRDetailPane: View {
         if showReview {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("REVIEW")
-                        .font(Theme.mono(10, .semibold))
-                        .tracking(1.4)
-                        .foregroundColor(.secondary.opacity(0.75))
+                    Text("REVIEW").eyebrow()
                     Spacer()
                     copilotControl
                     Button {
@@ -431,7 +428,7 @@ struct PRDetailPane: View {
                             centeredMessage {
                                 VStack(spacing: 8) {
                                     Icon("sidebar.left", size: 26)
-                                        .foregroundColor(.secondary.opacity(0.35))
+                                        .foregroundColor(.secondary)
                                     Text("Select a file to view its diff.")
                                         .font(Theme.ui(13))
                                         .foregroundColor(.secondary)
@@ -493,10 +490,7 @@ struct PRDetailPane: View {
     @ViewBuilder
     private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title.uppercased())
-                .font(Theme.mono(10, .semibold))
-                .tracking(1.4)
-                .foregroundColor(.secondary.opacity(0.75))
+            Text(title.uppercased()).eyebrow()
             content()
         }
     }
@@ -563,7 +557,7 @@ struct PRDetailPane: View {
             part(pr.mergeableState.label.capitalizedFirst, red: pr.mergeableState == .dirty)
         }
         part("Updated \(relativeTime(pr.updatedAt)) ago")
-        let dot = Text("  ·  ").foregroundColor(.secondary.opacity(0.6))
+        let dot = Text("  ·  ").foregroundColor(.secondary)
         return parts.dropFirst().reduce(parts[0]) { $0 + dot + $1 }
     }
 
@@ -814,7 +808,7 @@ struct PRDetailPane: View {
                     ForEach(Array(stackEntries.enumerated()), id: \.element.id) { idx, entry in
                         if idx > 0 {
                             Icon("chevron.right", size: 8)
-                                .foregroundColor(.secondary.opacity(0.5))
+                                .foregroundColor(.secondary)
                         }
                         StackEntryChip(entry: entry, isCurrent: entry.number == pr.number) {
                             openStackEntry(entry)
@@ -866,7 +860,7 @@ struct PRDetailPane: View {
                 let emptyCount = draftComments.count - readyDraftComments.count
                 if emptyCount > 0 {
                     Text("\(emptyCount) empty")
-                        .font(Theme.mono(10, .medium))
+                        .font(Theme.mono(11, .medium))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
@@ -1307,12 +1301,12 @@ struct PRDetailPane: View {
                     .font(Theme.ui(13))
                 if expandable {
                     Icon("chevron.right", size: 9)
-                        .foregroundColor(.secondary.opacity(0.6))
+                        .foregroundColor(.secondary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
                 Spacer()
                 Text(c.conclusion ?? c.status)
-                    .font(Theme.mono(10, .medium))
+                    .font(Theme.mono(11, .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
@@ -1322,7 +1316,7 @@ struct PRDetailPane: View {
                         PRActions.openInBrowser(url)
                     } label: {
                         Icon("arrow.up.right.square", size: 12)
-                            .foregroundColor(.secondary.opacity(0.65))
+                            .foregroundColor(.secondary)
                     }
                     .buttonStyle(.borderless)
                     .help("Open \(c.name) on GitHub")
@@ -1733,7 +1727,7 @@ private struct ReviewComposer: View {
             if text.isEmpty {
                 Text("Leave a comment…")
                     .font(Theme.ui(13))
-                    .foregroundColor(.secondary.opacity(0.55))
+                    .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .allowsHitTesting(false)
@@ -1784,7 +1778,7 @@ private struct FileStatusBadge: View {
     let status: String
     var body: some View {
         Text(fileStatusLetter(status))
-            .font(Theme.mono(9, .bold))
+            .font(Theme.mono(11, .bold))
             .foregroundColor(fileStatusTint(status))
             .frame(width: 15, height: 15)
             .background(
@@ -1945,7 +1939,7 @@ private struct FileTreeRow: View {
                     .foregroundColor(.secondary)
                     .frame(width: 10)
                 Icon("folder.fill", size: 11)
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .foregroundColor(.secondary)
             } else {
                 Spacer().frame(width: 10)
                 FileStatusBadge(status: node.file?.status ?? "")
@@ -1958,12 +1952,12 @@ private struct FileTreeRow: View {
             Spacer(minLength: 8)
             if node.additions > 0 {
                 Text("+\(node.additions)")
-                    .font(Theme.mono(10, .medium))
+                    .font(Theme.mono(11, .medium))
                     .foregroundColor(.green.opacity(node.isDir ? 0.6 : 1))
             }
             if node.deletions > 0 {
                 Text("−\(node.deletions)")
-                    .font(Theme.mono(10, .medium))
+                    .font(Theme.mono(11, .medium))
                     .foregroundColor(.red.opacity(node.isDir ? 0.6 : 1))
             }
         }
@@ -2011,7 +2005,7 @@ private struct FileDiffScreen: View {
                 if let url = file.blobUrl {
                     Button { PRActions.openInBrowser(url) } label: {
                         Icon("arrow.up.right.square", size: 12)
-                            .foregroundColor(.secondary.opacity(0.65))
+                            .foregroundColor(.secondary)
                     }
                     .buttonStyle(.borderless)
                     .help("Open this file on GitHub")
@@ -2331,8 +2325,8 @@ private struct DiffLineRow: View {
 
     private func gutter(_ n: Int?) -> some View {
         Text(n.map(String.init) ?? "")
-            .font(Theme.mono(10))
-            .foregroundColor(.secondary.opacity(0.6))
+            .font(Theme.mono(11))
+            .foregroundColor(.secondary)
             .frame(width: 38, alignment: .trailing)
             .padding(.trailing, 4)
     }
@@ -2583,7 +2577,7 @@ private struct InlineDraftCommentEditor: View {
                         .font(Theme.ui(11, .semibold))
                         .foregroundColor(.primary)
                     Text(location)
-                        .font(Theme.mono(10))
+                        .font(Theme.mono(11))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -2651,18 +2645,18 @@ private struct PostedCommentRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(comment.authorLogin)
-                        .font(Theme.ui(11.5, .semibold))
+                        .font(Theme.ui(12, .semibold))
                         .foregroundColor(.primary)
                     if comment.isBot {
                         Text("bot")
-                            .font(Theme.mono(9, .medium))
+                            .font(Theme.mono(11, .medium))
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Capsule().fill(Color.primary.opacity(0.07)))
                     }
                     Text(relativeTime(comment.createdAt))
-                        .font(Theme.ui(10.5))
+                        .font(Theme.ui(11))
                         .foregroundColor(.secondary)
                     if collapsed {
                         Text(firstLine)
@@ -2674,7 +2668,7 @@ private struct PostedCommentRow: View {
                     Spacer(minLength: 0)
                     if comment.isBot {
                         Icon(botExpanded ? "chevron.up" : "chevron.down", size: 8)
-                            .foregroundColor(.secondary.opacity(0.7))
+                            .foregroundColor(.secondary)
                     }
                 }
                 if !collapsed {
@@ -2769,13 +2763,13 @@ struct EmptyDetail: View {
     var body: some View {
         VStack(spacing: 10) {
             Icon("arrow.triangle.branch", size: 36)
-                .foregroundColor(.secondary.opacity(0.35))
+                .foregroundColor(.secondary)
             Text("Select a PR")
                 .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
             Text("Click a pull request, or use ↑ ↓ to move, ↩ to open on GitHub, ⌘. to open in your IDE.")
                 .font(Theme.ui(11))
-                .foregroundColor(.secondary.opacity(0.7))
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.panel)

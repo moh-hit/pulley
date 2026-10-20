@@ -214,21 +214,19 @@ private struct HeaderView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text("PULLEY")
-                .font(Theme.mono(11, .semibold))
-                .tracking(1)
-                .foregroundColor(.primary)
+            Text("Pulley")
+                .font(Theme.display(18))
 
             if !store.prs.isEmpty {
                 Text("·").foregroundColor(.secondary)
                 Text("\(store.prs.count) PR\(store.prs.count == 1 ? "" : "s")")
-                    .font(Theme.mono(10))
+                    .font(Theme.mono(11))
                     .foregroundColor(.secondary)
             }
 
             if store.isMockData {
                 Text("PREVIEW")
-                    .font(Theme.mono(8, .semibold))
+                    .font(Theme.mono(11, .semibold))
                     .tracking(0.5)
                     .foregroundColor(.secondary.opacity(0.8))
             }
@@ -237,14 +235,14 @@ private struct HeaderView: View {
 
             if store.syncing {
                 Text("Syncing…")
-                    .font(Theme.mono(10))
+                    .font(Theme.mono(11))
                     .foregroundColor(.secondary)
             } else if let t = store.lastSync {
                 HStack(spacing: 4) {
                     Icon("checkmark", size: 9)
                     Text(t.formatted(.dateTime.hour().minute()))
                 }
-                .font(Theme.mono(10))
+                .font(Theme.mono(11))
                 .foregroundColor(.secondary)
             }
 
@@ -304,7 +302,7 @@ private struct FilterRow: View {
             HStack(spacing: 6) {
                 Icon("magnifyingglass", size: 10)
                     .foregroundColor(.secondary.opacity(0.75))
-                TextField("Find pull requests", text: $query)
+                TextField("Search pull requests", text: $query)
                     .textFieldStyle(.plain)
                     .font(Theme.ui(12))
                     .focused(searchFocused)
@@ -357,7 +355,7 @@ private struct FilterRow: View {
                     Text(groupBy.menuLabel)
                         .font(Theme.ui(11, .medium))
                     Icon("chevron.down", size: 8)
-                        .foregroundColor(.secondary.opacity(0.7))
+                        .foregroundColor(.secondary)
                 }
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 8)
@@ -465,11 +463,10 @@ private struct SectionView: View {
                         .fill(section.accent.opacity(0.85))
                         .frame(width: 7, height: 7)
                     Text(section.title)
-                        .font(Theme.mono(11, .medium))
-                        .tracking(0.4)
-                        .foregroundColor(.primary)
+                .font(Theme.ui(12, .medium))
+                .foregroundColor(.primary)
                     Text("\(section.prs.count)")
-                        .font(Theme.mono(10))
+                        .font(Theme.mono(11))
                         .foregroundColor(.secondary)
                     Spacer()
                     Icon(isCollapsed ? "chevron.right" : "chevron.down", size: 9)
@@ -589,7 +586,7 @@ private struct PRRow: View {
                 .animation(.easeOut(duration: 0.1), value: quickActionsVisible)
 
                 Text(relativeTime(pr.updatedAt))
-                    .font(Theme.mono(10))
+                    .font(Theme.mono(11))
                     .foregroundColor(.secondary)
                     .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
 
@@ -598,7 +595,7 @@ private struct PRRow: View {
                     withAnimation(.easeOut(duration: 0.14)) { isExpanded.toggle() }
                 } label: {
                     Icon(isExpanded ? "chevron.up" : "chevron.down", size: 8)
-                        .foregroundColor(.secondary.opacity(0.7))
+                        .foregroundColor(.secondary)
                         .frame(width: 16, height: 18)
                         .contentShape(Rectangle())
                 }
@@ -610,42 +607,31 @@ private struct PRRow: View {
                 .animation(.easeOut(duration: 0.1), value: disclosureVisible)
             }
 
-            // Conditions stay visible because they determine what needs
-            // attention. Branch and actions move into the selected state.
+            // Same contract as the window list: where it lives, and at most
+            // one chip for what needs attention. Branch, checks and actions
+            // sit in the expanded row.
             HStack(spacing: 8) {
-                if hasChecks {
-                    CheckStatusDot(
-                        status: pr.checkStatus,
-                        count: pr.checks.count,
-                        expanded: isExpanded
-                    ) {
-                        onSelect()
-                        withAnimation(.easeInOut(duration: 0.12)) { isExpanded.toggle() }
-                    }
-                }
-
-                if pr.mergeableState.isActionable && pr.mergeableState != .unstable {
-                    MergeableChip(state: pr.mergeableState)
-                }
-                MergeFlowChip(pr: pr)
-                StackChip(pr: pr)
-
                 if showRepo {
-                    RepoChip(
-                        repo: pr.repo,
-                        orgPrefix: showOrgPrefix ? pr.org : nil
-                    )
+                    (Text(showOrgPrefix ? pr.org + "/" : "").foregroundColor(.secondary.opacity(0.75))
+                     + Text(pr.repo).foregroundColor(.secondary))
+                        .font(Theme.mono(11))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                if showStatus {
-                    StatusInline(status: pr.status)
+                Text("#\(String(pr.number))")
+                    .font(Theme.mono(11))
+                    .foregroundColor(.secondary)
+                    .fixedSize()
+                if showStatus && pr.status == .changes {
+                    Text(pr.status.label)
+                        .font(Theme.ui(11, .medium))
+                        .foregroundColor(.red)
+                        .fixedSize()
                 }
-
-                if pr.isDraft {
-                    MutedChip(text: "draft")
-                        .help("Draft PR")
-                }
-
                 Spacer(minLength: 0)
+                if let attention = RowAttention(pr: pr) {
+                    AttentionChip(attention: attention)
+                }
             }
 
             if isExpanded {
@@ -657,14 +643,6 @@ private struct PRRow: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(
-                    isSelected ? Color.accentColor.opacity(0.65) : Color.clear,
-                    lineWidth: 1
-                )
-                .padding(.horizontal, 4)
-        )
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
     }
@@ -677,15 +655,15 @@ private struct PRRow: View {
                 if !pr.branch.isEmpty {
                     Icon("arrow.triangle.branch", size: 9)
                     Text(pr.branch)
-                        .font(Theme.mono(10))
+                        .font(Theme.mono(11))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help(pr.branch)
                 }
                 Spacer(minLength: 6)
                 Text("#\(String(pr.number))")
-                    .font(Theme.mono(9))
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .font(Theme.mono(11))
+                    .foregroundColor(.secondary)
             }
             .foregroundColor(.secondary)
 
@@ -699,7 +677,7 @@ private struct PRRow: View {
                         ProgressView().controlSize(.small)
                         Text("Preparing…")
                     }
-                    .font(Theme.ui(10, .medium))
+                    .font(Theme.ui(11, .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
@@ -727,7 +705,7 @@ private struct PRRow: View {
     }
 
     private var rowBackground: Color {
-        if isSelected { return Color.accentColor.opacity(0.07) }
+        if isSelected { return Theme.selection }
         if hovered    { return Color.primary.opacity(0.04) }
         return Color.clear
     }
@@ -743,7 +721,7 @@ private struct QuickCopyButton: View {
     var body: some View {
         Button(action: action) {
             Icon(icon, size: 9)
-                .foregroundColor(copied ? .green : .secondary.opacity(hovered ? 1 : 0.75))
+                .foregroundColor(copied ? .primary : .secondary.opacity(hovered ? 1 : 0.75))
                 .frame(width: 20, height: 18)
                 .background(
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -767,7 +745,7 @@ private struct RowActionButton: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(Theme.ui(10, .medium))
+                .font(Theme.ui(11, .medium))
                 .lineLimit(1)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
@@ -785,42 +763,6 @@ private struct RowActionButton: View {
 
 // MARK: - CI checks
 
-private struct CheckStatusDot: View {
-    let status: CheckStatus
-    let count: Int
-    let expanded: Bool
-    let onTap: () -> Void
-    @State private var hovered = false
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 3) {
-                Icon(glyph, size: 9)
-                    .foregroundColor(color)
-                Text("\(count)")
-                    .font(Theme.mono(9))
-                    .foregroundColor(color.opacity(0.85))
-                Icon(expanded ? "chevron.up" : "chevron.down", size: 7)
-                    .foregroundColor(.secondary.opacity(0.7))
-            }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(
-                Capsule().fill(color.opacity(hovered ? 0.12 : 0.08))
-            )
-            .overlay(
-                Capsule().stroke(color.opacity(0.18), lineWidth: 0.5)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .help("CI \(status.label) — click for detail")
-    }
-
-    private var glyph: String { checkGlyph(status) }
-    private var color: Color  { popoverCheckColor(status) }
-}
 
 private struct ChecksList: View {
     let checks: [CheckRun]
@@ -863,7 +805,7 @@ private struct CheckRow: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
                 Text(check.stateLabel)
-                    .font(Theme.mono(9))
+                    .font(Theme.mono(11))
                     .foregroundColor(color.opacity(0.9))
                 if check.url != nil {
                     Icon("arrow.up.right.square", size: 9)
@@ -890,112 +832,9 @@ private struct CheckRow: View {
 
 // MARK: - Chips
 
-private struct RepoChip: View {
-    let repo: String
-    /// When non-nil, rendered as a dim "<org>/" prefix so repos sharing a name
-    /// across orgs stay distinguishable.
-    let orgPrefix: String?
 
-    var body: some View {
-        HStack(spacing: 4) {
-            Icon("folder", size: 8)
-                .foregroundColor(.secondary.opacity(0.75))
-            Group {
-                if let orgPrefix {
-                    (Text(orgPrefix + "/").foregroundColor(.primary.opacity(0.45))
-                     + Text(repo).foregroundColor(.primary.opacity(0.75)))
-                        .font(Theme.mono(10, .medium))
-                } else {
-                    Text(repo)
-                        .font(Theme.mono(10, .medium))
-                        .foregroundColor(.primary.opacity(0.75))
-                }
-            }
-            .lineLimit(1)
-            .truncationMode(.middle)
-        }
-        .padding(.leading, 5)
-        .padding(.trailing, 7)
-        .padding(.vertical, 2)
-        .background(
-            Capsule()
-                .fill(Color.primary.opacity(0.055))
-        )
-        .overlay(
-            Capsule()
-                .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
-        )
-        .fixedSize()
-        .help(orgPrefix.map { "Repo: \($0)/\(repo)" } ?? "Repo: \(repo)")
-    }
-}
 
-private struct StatusInline: View {
-    let status: PRStatus
 
-    var body: some View {
-        Text(statusLabel(status).lowercased())
-            .font(Theme.mono(10, .medium))
-            .foregroundColor(status == .changes ? .red : .secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(Color.primary.opacity(0.055)))
-            .fixedSize()
-            .help(statusLabel(status))
-    }
-}
-
-private struct MergeableChip: View {
-    let state: MergeableState
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Icon(glyph, size: 9)
-            Text(state.label)
-                .font(Theme.mono(10, .medium))
-                .lineLimit(1)
-        }
-        .foregroundColor(color)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(Capsule().fill(color.opacity(0.09)))
-        .overlay(Capsule().stroke(color.opacity(0.20), lineWidth: 0.5))
-        .fixedSize()
-        .help(helpText)
-    }
-
-    private var glyph: String { mergeableGlyph(state) }
-    private var color: Color {
-        // Only conflicts block the author outright; the rest are waiting states.
-        state == .dirty ? .red : .secondary
-    }
-
-    private var helpText: String {
-        switch state {
-        case .dirty:    return "Merge conflicts — rebase or merge base"
-        case .behind:   return "Branch is behind base — update from base"
-        case .blocked:  return "Blocked by branch protection (required reviews / checks)"
-        case .unstable: return "Mergeable but a required check is failing or pending"
-        default:        return state.label
-        }
-    }
-}
-
-private struct MutedChip: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(Theme.mono(9, .medium))
-            .foregroundColor(.secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(Color.primary.opacity(0.07)))
-            .fixedSize()
-    }
-}
 
 // MARK: - Helpers
 

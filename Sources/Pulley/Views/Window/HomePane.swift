@@ -138,15 +138,12 @@ struct HomePane: View {
                 .font(Theme.display(20))
             ForEach(activityDays, id: \.day) { day in
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(dayLabel(day.day).uppercased())
-                        .font(Theme.ui(11, .medium))
-                        .tracking(0.6)
-                        .foregroundColor(.secondary)
+                    Text(dayLabel(day.day).uppercased()).eyebrow()
                     VStack(spacing: 0) {
                         ForEach(Array(day.prs.enumerated()), id: \.element.id) { idx, pr in
                             ActivityRow(pr: pr) { onOpen(.prs(.all), pr.id) }
                             if idx < day.prs.count - 1 {
-                                Divider().opacity(0.5)
+                                Rectangle().fill(Theme.hairline).frame(height: 1)
                             }
                         }
                     }
@@ -176,7 +173,7 @@ struct HomePane: View {
                 .font(Theme.ui(13))
                 .foregroundColor(.secondary)
             if store.lastSync == nil {
-                Button("Open Settings", action: onOpenSettings)
+                Button("Open settings", action: onOpenSettings)
                     .controlSize(.large)
             }
         }

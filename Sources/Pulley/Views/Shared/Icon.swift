@@ -110,7 +110,7 @@ enum PhosphorIcons {
         "text.bubble": "chat-text",
         "trash": "trash",
         "tray": "tray",
-        "tray.full": "tray-arrow-down",
+        "tray.full": "squares-four",
         "xmark": "x",
         "xmark.circle": "x-circle",
         "xmark.octagon": "x-circle",

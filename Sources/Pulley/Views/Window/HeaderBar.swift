@@ -90,7 +90,7 @@ private struct GroupPicker: View {
         } label: {
             HStack(spacing: 5) {
                 Icon(groupMode.icon, size: 10)
-                Text(groupMode == .none ? "Group" : groupMode.label)
+                Text(groupMode == .none ? "Group" : "By \(groupMode.label.lowercased())")
                     .font(Theme.ui(12))
                 Icon("chevron.down", size: 8)
             }

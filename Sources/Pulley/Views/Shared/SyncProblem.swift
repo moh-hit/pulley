@@ -62,7 +62,7 @@ struct SyncErrorBanner: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             if problem.fix == .settings {
-                Button("Open Settings", action: onOpenSettings)
+                Button("Open settings", action: onOpenSettings)
                     .buttonStyle(.borderless)
                     .font(Theme.ui(12, .medium))
             }
