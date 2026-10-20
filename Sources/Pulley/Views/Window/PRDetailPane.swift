@@ -594,7 +594,7 @@ struct PRDetailPane: View {
 
     private var actionRow: some View {
       VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: 8) {
+        FlowLayout(spacing: 8, lineSpacing: 8) {
             DetailActionButton(
                 title: "Open in \(Config.preferredIDE.displayName)",
                 systemImage: Config.preferredIDE.fallbackSymbol,
@@ -629,7 +629,6 @@ struct PRDetailPane: View {
                 .help("Copy branch name")
             }
 
-            Spacer()
         }
         // Merge errors surface here since the merge button lives in this row
         // and the review section (which has its own error line) may be closed.

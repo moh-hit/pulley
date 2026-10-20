@@ -7,6 +7,7 @@ import SwiftUI
 /// keyboard focus, Cmd-Tab. On close we drop back to `.accessory`.
 @MainActor
 final class MainWindowController: NSWindowController, NSWindowDelegate {
+    private static let frameName = "PulleyMainWindow"
     private let store: Store
 
     init(store: Store) {
@@ -24,8 +25,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.title = "Pulley"
-        window.minSize = NSSize(width: 900, height: 560)
+        window.minSize = NSSize(width: 900, height: 600)
+        // First launch fills the screen; after that the window keeps whatever
+        // size and position the user gave it (AppKit saves it on every move).
         window.setFrame(defaultFrame, display: true)
+        window.setFrameUsingName(Self.frameName)
+        window.setFrameAutosaveName(Self.frameName)
         window.isReleasedWhenClosed = false
         // Content runs under a transparent title bar so the sidebar's warm
         // chrome reaches the top edge, with the traffic lights over it.
@@ -44,12 +49,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func show() {
         NSApp.setActivationPolicy(.regular)
-        // Open at full visible-screen width by default. The window persists
-        // across closes (isReleasedWhenClosed = false), so re-apply on each
-        // open rather than only at construction.
-        if let screen = window?.screen ?? NSScreen.main {
-            window?.setFrame(screen.visibleFrame, display: true)
-        }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

@@ -77,9 +77,23 @@ struct MainWindowView: View {
         return filtered.first { $0.id == id }
     }
 
+    /// Below this width the expanded sidebar (214) + list (340) + detail (480)
+    /// + panel padding no longer fit, so the sidebar folds to its icon rail.
+    private static let narrowWidth: CGFloat = 1060
+
     var body: some View {
+        GeometryReader { geo in
+            content(narrow: geo.size.width < Self.narrowWidth, height: geo.size.height)
+        }
+    }
+
+    private func content(narrow: Bool, height: CGFloat) -> some View {
         HStack(spacing: 0) {
-            SidebarView(section: $section, onOpenSettings: { showSettings = true })
+            SidebarView(
+                section: $section,
+                forceCollapsed: narrow,
+                onOpenSettings: { showSettings = true }
+            )
             VStack(spacing: 0) {
                 if let error = store.lastError {
                     SyncErrorBanner(
@@ -105,7 +119,8 @@ struct MainWindowView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView(onClose: { showSettings = false })
                 .environmentObject(store)
-                .frame(width: 560, height: 640)
+                // Leave room for the title bar in short windows.
+                .frame(width: 560, height: min(640, max(380, height - 70)))
         }
         .onChange(of: section) { _ in
             query = ""

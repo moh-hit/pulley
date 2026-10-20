@@ -14,11 +14,16 @@ enum MainSection: Hashable {
 struct SidebarView: View {
     @EnvironmentObject var store: Store
     @Binding var section: MainSection
+    /// Set by the window when it is too narrow for the full sidebar.
+    var forceCollapsed: Bool = false
     let onOpenSettings: () -> Void
 
     @State private var nowTick = Date()
-    /// Collapsed to an icon-only rail. Remembered across launches.
-    @AppStorage("ui.sidebarCollapsed") private var collapsed = false
+    /// The user's choice, remembered across launches.
+    @AppStorage("ui.sidebarCollapsed") private var userCollapsed = false
+
+    /// Icon-only rail: by choice, or because the window is too narrow.
+    private var collapsed: Bool { userCollapsed || forceCollapsed }
 
     private static let statuses: [PRStatus] = [.changes, .review, .approved, .open]
 
@@ -142,7 +147,7 @@ struct SidebarView: View {
 
     private var toggleButton: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.18)) { collapsed.toggle() }
+            withAnimation(.easeOut(duration: 0.18)) { userCollapsed.toggle() }
         } label: {
             Icon("sidebar.left", size: 15)
                 .foregroundColor(.secondary)
@@ -151,7 +156,10 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .keyboardShortcut("s", modifiers: [.command, .control])
-        .help(collapsed ? "Show sidebar (⌃⌘S)" : "Hide sidebar (⌃⌘S)")
+        .disabled(forceCollapsed)
+        .help(forceCollapsed
+              ? "Widen the window to show the sidebar"
+              : (collapsed ? "Show sidebar (⌃⌘S)" : "Hide sidebar (⌃⌘S)"))
         .accessibilityLabel(collapsed ? "Show sidebar" : "Hide sidebar")
     }
 
