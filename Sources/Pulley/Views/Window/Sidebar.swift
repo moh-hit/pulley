@@ -103,7 +103,9 @@ struct SidebarView: View {
         }
         .padding(.horizontal, collapsed ? 8 : 10)
         .padding(.bottom, 12)
-        .frame(width: collapsed ? 64 : 214)
+        // The collapsed rail must clear the traffic lights (~70pt), or they
+        // overlap the content panel's rounded corner.
+        .frame(width: collapsed ? 76 : 214)
         .clipped()
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { nowTick = $0 }
     }

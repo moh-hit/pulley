@@ -25,7 +25,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.title = "Pulley"
-        window.minSize = NSSize(width: 900, height: 600)
+        // Collapsed rail 76 + list 340 + detail 480 + padding fits in 920.
+        window.minSize = NSSize(width: 920, height: 600)
         // First launch fills the screen; after that the window keeps whatever
         // size and position the user gave it (AppKit saves it on every move).
         window.setFrame(defaultFrame, display: true)
