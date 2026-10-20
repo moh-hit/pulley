@@ -52,6 +52,15 @@ to settings shape or filesystem layout.
   showed you, like direct merges, so a push that lands in between is
   rejected instead of merging unseen code.
 
+### Fixed
+- Switching PRs in the main window could load the previously selected
+  PR's data into the detail pane: its stack, Copilot status, and
+  potentially its description, files and comments. The pane is now built
+  fresh for each PR.
+- Debug mock-data mode (`PULLEY_MOCK_DATA=1`) no longer reads the Keychain
+  token or calls GitHub from the detail pane. The Copilot status and the
+  stack breadcrumb get fixtures instead.
+
 ### Developer
 - CI and release workflows bump `actions/checkout` to v7 and
   `actions/cache` to v6 (supersedes the Dependabot PRs #24 and #25).
