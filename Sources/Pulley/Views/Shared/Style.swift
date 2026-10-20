@@ -48,6 +48,9 @@ func mergeableColor(_ s: MergeableState) -> Color {
     }
 }
 
+/// GitHub's merge-button purple — merge actions and merge-flow status.
+let mergePurple = Color(red: 0.52, green: 0.30, blue: 0.86)
+
 func mergeableGlyph(_ s: MergeableState) -> String {
     switch s {
     case .dirty:    return "exclamationmark.triangle.fill"

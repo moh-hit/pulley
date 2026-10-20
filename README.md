@@ -34,6 +34,7 @@
 - **Live PR list** across one or many GitHub orgs, filtered by authored / review-requested / involves / assigned.
 - **Grouped views** — by review status, repo, or org.
 - **Open in IDE** — one click creates a sibling git worktree so your main checkout is untouched.
+- **Merge from Pulley** — squash, merge commit, or rebase (only what the repo allows), **merge when ready** via auto-merge, and **merge queue** support with live queue position.
 - **Multi-org** with per-org coloring and `org/repo` chips when repo names collide.
 - **Token stored in Keychain**, never on disk.
 - **Menu-bar only** — no Dock icon, no main window.
@@ -85,7 +86,7 @@ reference:
 - **Classic PAT** — scopes `repo`, `read:org`, and `notifications` (the last
   enables the Inbox). Works for everything.
 - **Fine-grained token** — grant access to the orgs' repositories with
-  **Pull requests: Read and write**, **Contents: Read and write** (merging),
+  **Pull requests: Read and write**, **Contents: Read and write** (merging, auto-merge, merge queue),
   **Checks: Read and write** (CI details + re-running individual checks),
   **Actions: Read and write** (re-running failed workflow jobs), and
   **Commit statuses: Read** (third-party CI). The Inbox isn't available on

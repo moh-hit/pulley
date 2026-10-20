@@ -652,6 +652,7 @@ private struct PRRow: View {
                 if pr.mergeableState.isActionable && pr.mergeableState != .unstable {
                     MergeableChip(state: pr.mergeableState)
                 }
+                MergeFlowChip(pr: pr)
 
                 if showRepo {
                     RepoChip(

@@ -16,6 +16,7 @@ final class Store: ObservableObject {
 
     private var timer: Timer?
     // v2: added PR.mergeableState — v1 cached blobs fail to decode and are dropped.
+    // PR.merge (v1.9) is optional, so v2 blobs still decode; it fills in on sync.
     private let cacheKey         = "store.prs.cache.v2"
     private let inboxCacheKey    = "store.inbox.cache.v1"
     private let readThreadsKey   = "store.inbox.read.v1"
@@ -36,6 +37,15 @@ final class Store: ObservableObject {
     /// fetch returned — otherwise the UI flips, syncs, then flips back.
     private var draftOverrides: [String: (isDraft: Bool, at: Date)] = [:]
     private let draftOverrideTTL: TimeInterval = 30
+
+    /// Same idea for auto-merge / merge-queue changes made from Pulley: the
+    /// search index lags the mutation, so for the TTL window the result the
+    /// mutation returned beats what the fetch says.
+    enum MergeOverride {
+        case queueEntry(MergeInfo.QueueEntry?)
+        case autoMerge(MergeInfo.AutoMerge?)
+    }
+    private var mergeOverrides: [String: (change: MergeOverride, at: Date)] = [:]
 
     init() {
         isMockData = MockData.isEnabled
@@ -153,14 +163,18 @@ final class Store: ObservableObject {
                 async let inboxTask  = client.fetchNotifications()
                 let fetched = try await prsTask
                 let inbox   = (try? await inboxTask).map(self.filterReadThreads) ?? self.notifications
-                let merged  = self.applyDraftOverrides(to: fetched)
+                let merged  = self.applyLocalOverrides(to: fetched)
                 self.prs = merged
                 self.notifications = inbox
                 self.saveCache()
                 self.lastSync = Date()
                 self.syncing = false
                 NotificationsManager.shared.requestAuthorizationIfNeeded()
-                NotificationsManager.shared.reconcile(merged)
+                // Merge-flow changes the user just made themselves shouldn't
+                // come back as "removed from queue" style notifications.
+                NotificationsManager.shared.reconcile(
+                    merged, localMergeChanges: Set(self.mergeOverrides.keys)
+                )
 
                 // Off the main actor — git shells out and GitHub round-trips
                 // are slow enough that we don't want the sweeper holding up
@@ -216,15 +230,40 @@ final class Store: ObservableObject {
     /// list. Expired entries are dropped on the way through; this is the
     /// only place we prune, which is fine because every sync runs through
     /// here.
-    private func applyDraftOverrides(to fetched: [PR]) -> [PR] {
+    private func applyLocalOverrides(to fetched: [PR]) -> [PR] {
         let cutoff = Date().addingTimeInterval(-draftOverrideTTL)
         draftOverrides = draftOverrides.filter { $0.value.at > cutoff }
-        guard !draftOverrides.isEmpty else { return fetched }
+        mergeOverrides = mergeOverrides.filter { $0.value.at > cutoff }
+        guard !draftOverrides.isEmpty || !mergeOverrides.isEmpty else { return fetched }
         return fetched.map { pr in
-            guard let override = draftOverrides[pr.id],
-                  override.isDraft != pr.isDraft else { return pr }
-            return pr.with(isDraft: override.isDraft)
+            var pr = pr
+            if let override = draftOverrides[pr.id], override.isDraft != pr.isDraft {
+                pr = pr.with(isDraft: override.isDraft)
+            }
+            if let override = mergeOverrides[pr.id] {
+                pr.merge = Self.applying(override.change, to: pr.merge)
+            }
+            return pr
         }
+    }
+
+    private static func applying(_ change: MergeOverride, to info: MergeInfo?) -> MergeInfo? {
+        guard var info else { return nil }
+        switch change {
+        case .queueEntry(let entry): info.queueEntry = entry
+        case .autoMerge(let auto):   info.autoMerge = auto
+        }
+        return info
+    }
+
+    /// Apply an auto-merge / queue change locally right after its mutation
+    /// returns, so the merge control flips immediately; the follow-up sync
+    /// reconciles everything else.
+    func setLocalMerge(prID: String, _ change: MergeOverride) {
+        mergeOverrides[prID] = (change, Date())
+        guard let idx = prs.firstIndex(where: { $0.id == prID }) else { return }
+        prs[idx].merge = Self.applying(change, to: prs[idx].merge)
+        saveCache()
     }
 
     /// Apply a draft/ready transition locally without waiting for the next

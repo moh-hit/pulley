@@ -256,6 +256,7 @@ private struct WindowPRRow: View {
                 if pr.mergeableState.isActionable {
                     mergeChip
                 }
+                MergeFlowChip(pr: pr)
                 if pr.isDraft {
                     draftChip
                 }

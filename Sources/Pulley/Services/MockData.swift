@@ -19,6 +19,8 @@ enum MockData {
         let mergeableState: MergeableState
         let isDraft: Bool
         let checkCount: Int
+        let queuePosition: Int?
+        let autoMerge: Bool
 
         init(
             _ number: Int,
@@ -31,7 +33,9 @@ enum MockData {
             checks: CheckStatus = .success,
             mergeable: MergeableState = .clean,
             draft: Bool = false,
-            checkCount: Int = 3
+            checkCount: Int = 3,
+            queue: Int? = nil,
+            autoMerge: Bool = false
         ) {
             self.number = number
             self.title = title
@@ -44,6 +48,8 @@ enum MockData {
             self.mergeableState = mergeable
             self.isDraft = draft
             self.checkCount = checkCount
+            self.queuePosition = queue
+            self.autoMerge = autoMerge
         }
     }
 
@@ -53,13 +59,13 @@ enum MockData {
         Spec(913, "Address review feedback in session handoff", repo: "web", branch: "fix/session-handoff", status: .changes, ageMinutes: 64, checks: .success, mergeable: .blocked),
         Spec(77, "Correct Terraform role permissions", org: "northstar", repo: "infra", branch: "fix/ci-role-policy", status: .changes, ageMinutes: 150, checks: .failure, mergeable: .unstable, checkCount: 5),
 
-        Spec(1207, "Ship new pricing page hero", repo: "web", branch: "feat/pricing-hero", status: .approved, ageMinutes: 46),
+        Spec(1207, "Ship new pricing page hero", repo: "web", branch: "feat/pricing-hero", status: .approved, ageMinutes: 46, queue: 2),
         Spec(334, "Add offline banner to mobile checkout", repo: "mobile", branch: "feat/offline-checkout-banner", status: .approved, ageMinutes: 82, checkCount: 4),
         Spec(64, "Rotate staging deployment credentials", org: "northstar", repo: "infra", branch: "chore/rotate-staging-credentials", status: .approved, ageMinutes: 205),
         Spec(556, "Use semantic tokens in account settings", repo: "design-system", branch: "refactor/account-tokens", status: .approved, ageMinutes: 390, checks: .neutral, checkCount: 2),
 
         Spec(1211, "Refactor checkout reducer to remove duplicated state transitions", repo: "web", branch: "refactor/checkout-reducer", status: .review, ageMinutes: 60, checks: .failure, mergeable: .unstable, checkCount: 6),
-        Spec(501, "Add rate-limit telemetry for GitHub sync", repo: "api", branch: "feat/rate-limit-telemetry", status: .review, ageMinutes: 105, checks: .pending),
+        Spec(501, "Add rate-limit telemetry for GitHub sync", repo: "api", branch: "feat/rate-limit-telemetry", status: .review, ageMinutes: 105, checks: .pending, autoMerge: true),
         Spec(342, "Support passkeys during sign in", repo: "mobile", branch: "feat/passkey-signin", status: .review, ageMinutes: 240, checks: .success, checkCount: 5),
         Spec(91, "Migrate edge cache rules", org: "northstar", repo: "web", branch: "chore/edge-cache-rules", status: .review, ageMinutes: 460, checks: .pending, mergeable: .behind),
         Spec(571, "Document focus states for compound controls", repo: "design-system", branch: "docs/compound-focus", status: .review, ageMinutes: 780, checks: .none, checkCount: 0),
@@ -92,9 +98,27 @@ enum MockData {
                 checks: checks(for: spec, url: url),
                 checkStatus: spec.checkStatus,
                 mergeableState: spec.mergeableState,
-                nodeID: nil
+                nodeID: nil,
+                merge: mergeInfo(for: spec)
             )
         }
+    }
+
+    private static func mergeInfo(for spec: Spec) -> MergeInfo {
+        MergeInfo(
+            allowedMethods: [.merge, .squash, .rebase],
+            defaultMethod: .squash,
+            autoMergeAllowed: true,
+            canEnableAutoMerge: true,
+            canDisableAutoMerge: true,
+            // The queued fixture's repo uses a merge queue; the rest don't.
+            mergeQueueEnabled: spec.queuePosition != nil,
+            queueEntry: spec.queuePosition.map {
+                MergeInfo.QueueEntry(position: $0, state: "AWAITING_CHECKS", estimatedSecondsToMerge: 720)
+            },
+            autoMerge: spec.autoMerge ? MergeInfo.AutoMerge(method: .squash, enabledBy: "mohit") : nil,
+            reviewDecision: spec.status == .approved ? "APPROVED" : nil
+        )
     }
 
     private static func checks(for spec: Spec, url: URL) -> [CheckRun] {
