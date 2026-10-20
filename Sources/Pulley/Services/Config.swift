@@ -20,6 +20,7 @@ enum Config {
     private static let baseDirKey  = "ide.baseDir"
     private static let hotkeyKey   = "ui.globalHotkey"
     private static let mergeMethodKey = "git.mergeMethod"
+    private static let copilotReviewKey = "review.copilotEnabled"
 
     /// Whether a token has been saved. Read from UserDefaults — does NOT
     /// touch Keychain. Use this for any "is the app configured?" check at
@@ -145,6 +146,13 @@ enum Config {
         let token = self.token
         guard !token.isEmpty else { return nil }
         return GitHubClient(token: token, orgs: orgs)
+    }
+
+    /// Show the "Ask Copilot to review" control in the detail pane. On by
+    /// default; users without Copilot code review can hide it.
+    static var copilotReviewEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: copilotReviewKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: copilotReviewKey) }
     }
 
     static var launchAtLogin: Bool {

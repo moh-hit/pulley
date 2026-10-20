@@ -37,6 +37,13 @@ struct PRDetailPane: View {
     /// Monotonic guard so a slow comment fetch (or post-submit reconcile) from a
     /// previous PR can't clobber the list after the user has moved on.
     @State private var commentsReloadToken = 0
+
+    // Copilot code review status. Polled every 30s while a review is in
+    // progress; the reload token drops results for a PR no longer shown.
+    @State private var copilot: CopilotReviewState? = nil
+    @State private var copilotReloadToken = 0
+    @State private var copilotRequesting = false
+    @State private var copilotError: String? = nil
     /// Current user's login, used to attribute optimistically-shown comments
     /// until the real fetch (with avatar) catches up.
     @State private var myLogin: String? = nil
@@ -100,6 +107,7 @@ struct PRDetailPane: View {
             loadBody()
             loadFiles()
             loadReviewComments()
+            loadCopilotReview()
             if myLogin == nil { loadMyLogin() }
             syncFullScreen()
         }
@@ -107,6 +115,9 @@ struct PRDetailPane: View {
             loadBody()
             loadFiles()
             loadReviewComments()
+            copilotError = nil
+            copilotRequesting = false
+            loadCopilotReview()
             // Reset per-PR transient state so the textarea / error from one
             // PR doesn't leak into the next selection.
             reviewBody = ""
@@ -251,6 +262,7 @@ struct PRDetailPane: View {
                         .tracking(1.4)
                         .foregroundColor(.secondary.opacity(0.75))
                     Spacer()
+                    copilotControl
                     Button {
                         withAnimation(.easeOut(duration: 0.15)) { showReview = false }
                     } label: {
@@ -265,6 +277,7 @@ struct PRDetailPane: View {
             }
             divider
         } else {
+          HStack(spacing: 12) {
             Button {
                 withAnimation(.easeOut(duration: 0.15)) { showReview = true }
             } label: {
@@ -289,8 +302,90 @@ struct PRDetailPane: View {
             }
             .buttonStyle(.plain)
 
+            copilotControl
+          }
+
             divider
         }
+    }
+
+    /// Copilot review status / action, beside the review CTA. Hidden when
+    /// turned off in Settings or before the first status fetch lands.
+    @ViewBuilder
+    private var copilotControl: some View {
+        if Config.copilotReviewEnabled, let state = copilot {
+            VStack(alignment: .leading, spacing: 4) {
+                copilotStatusRow(state)
+                if let err = copilotError {
+                    Text(err)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func copilotStatusRow(_ state: CopilotReviewState) -> some View {
+        if state.requested || copilotRequesting {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small).scaleEffect(0.7)
+                if copilotLooksStuck {
+                    Text("No review from Copilot yet")
+                        .foregroundColor(.orange)
+                        .help("GitHub accepted the request, but Copilot hasn't answered. Check that Copilot code review is enabled for you on this repo's org.")
+                } else {
+                    Text("Copilot is reviewing…")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .font(.system(size: 12, weight: .medium))
+        } else if let at = state.lastReviewAt {
+            HStack(spacing: 8) {
+                Button {
+                    tab = .files
+                } label: {
+                    Label(
+                        state.lastReviewedCommit == pr.headSha
+                            ? "Copilot reviewed · \(relativeTime(at))"
+                            : "Copilot reviewed an older commit",
+                        systemImage: "sparkles"
+                    )
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Show Copilot's comments in Files")
+
+                if state.lastReviewedCommit != pr.headSha {
+                    Button("Re-request") { requestCopilotReview() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.accentColor)
+                        .help("Ask Copilot to review the latest push")
+                }
+            }
+        } else {
+            Button {
+                requestCopilotReview()
+            } label: {
+                Label("Ask Copilot to review", systemImage: "sparkles")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(pr.isDraft)
+            .help(pr.isDraft ? "Mark the PR ready for review first" : "Request a Copilot code review")
+        }
+    }
+
+    /// Requested from Pulley over 10 minutes ago and still pending — most
+    /// likely Copilot code review isn't available to this user.
+    private var copilotLooksStuck: Bool {
+        guard let at = store.copilotRequestedAt[pr.id] else { return false }
+        return Date().timeIntervalSince(at) > 600
     }
 
     @ViewBuilder
@@ -1344,6 +1439,71 @@ struct PRDetailPane: View {
         }
     }
 
+    /// Fetch Copilot's review status; while a review is in progress, poll
+    /// every 30s. When it finishes, reload review comments so Copilot's
+    /// inline notes show up in Files.
+    private func loadCopilotReview(poll: Bool = false) {
+        if !poll {
+            copilotReloadToken += 1
+            copilot = nil
+        }
+        let token = copilotReloadToken
+        guard Config.copilotReviewEnabled, let client = Config.makeClient() else { return }
+        let org = pr.org, repo = pr.repo, number = pr.number
+        Task {
+            if poll { try? await Task.sleep(nanoseconds: 30_000_000_000) }
+            guard await MainActor.run(body: { self.copilotReloadToken == token }) else { return }
+            let state = try? await client.fetchCopilotReview(org: org, repo: repo, number: number)
+            await MainActor.run {
+                guard self.copilotReloadToken == token, let state else { return }
+                let finished = (self.copilot?.requested ?? false) && !state.requested
+                self.copilot = state
+                if finished { self.loadReviewComments() }
+                if state.requested { self.loadCopilotReview(poll: true) }
+            }
+        }
+    }
+
+    private func requestCopilotReview() {
+        guard let client = Config.makeClient() else {
+            copilotError = "Token not configured."
+            return
+        }
+        guard let nodeID = pr.nodeID else {
+            copilotError = "Refresh first — this PR's GitHub ID hasn't synced yet."
+            return
+        }
+        copilotRequesting = true
+        copilotError = nil
+        let prID = pr.id
+        Task {
+            do {
+                try await client.requestCopilotReview(nodeID: nodeID)
+                await MainActor.run {
+                    self.store.copilotRequestedAt[prID] = Date()
+                    self.copilotRequesting = false
+                    guard self.pr.id == prID else { return }
+                    // Show "reviewing" right away; the poll confirms it.
+                    if let c = self.copilot {
+                        self.copilot = CopilotReviewState(
+                            requested: true,
+                            lastReviewAt: c.lastReviewAt,
+                            lastReviewedCommit: c.lastReviewedCommit
+                        )
+                    }
+                    self.copilotReloadToken += 1
+                    self.loadCopilotReview(poll: true)
+                }
+            } catch {
+                await MainActor.run {
+                    self.copilotRequesting = false
+                    guard self.pr.id == prID else { return }
+                    self.copilotError = error.localizedDescription
+                }
+            }
+        }
+    }
+
     private func loadMyLogin() {
         guard let client = Config.makeClient() else { return }
         Task {
@@ -2338,7 +2498,11 @@ private struct PostedCommentRow: View {
     let comment: PRReviewComment
     let isReply: Bool
 
+    /// Bot comments (Copilot, CodeRabbit, …) start as a one-line summary.
+    @State private var botExpanded = false
+
     private var indent: CGFloat { isReply ? 22 : 0 }
+    private var collapsed: Bool { comment.isBot && !botExpanded }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -2348,15 +2512,37 @@ private struct PostedCommentRow: View {
                     Text(comment.authorLogin)
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundColor(.primary)
+                    if comment.isBot {
+                        Text("bot")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.primary.opacity(0.07)))
+                    }
                     Text(relativeTime(comment.createdAt))
                         .font(.system(size: 10.5))
                         .foregroundColor(.secondary)
+                    if collapsed {
+                        Text(firstLine)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                     Spacer(minLength: 0)
+                    if comment.isBot {
+                        Image(systemName: botExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
                 }
-                MarkdownView(text: comment.body, bodyDesign: .default, bodySize: 13)
+                if !collapsed {
+                    MarkdownView(text: comment.body, bodyDesign: .default, bodySize: 13)
+                }
             }
         }
-        .padding(.vertical, 9)
+        .padding(.vertical, collapsed ? 6 : 9)
         .padding(.leading, gutterColumnsWidth + 12 + indent)
         .padding(.trailing, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2367,6 +2553,22 @@ private struct PostedCommentRow: View {
                 .frame(width: 3)
                 .padding(.leading, gutterColumnsWidth + 2 + indent)
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard comment.isBot else { return }
+            withAnimation(.easeOut(duration: 0.12)) { botExpanded.toggle() }
+        }
+        .help(collapsed ? "Show bot comment" : "")
+    }
+
+    /// First non-empty line of the body, minus Markdown heading/emphasis
+    /// markers, for the collapsed one-line summary.
+    private var firstLine: String {
+        let line = comment.body
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? ""
+        return line.trimmingCharacters(in: CharacterSet(charactersIn: "#*_> "))
     }
 
     private var avatar: some View {

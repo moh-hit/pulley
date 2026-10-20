@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var preferredIDE: IDE = Config.preferredIDE
     @State private var baseDir: String   = Config.workspaceBaseDir
     @State private var launchAtLogin: Bool = Config.launchAtLogin
+    @State private var copilotReview: Bool = Config.copilotReviewEnabled
     @State private var hotkey: Hotkey = Config.hotkey
 
     var body: some View {
@@ -189,6 +190,8 @@ struct SettingsView: View {
                     section(title: "GENERAL", icon: "macwindow") {
                         Toggle("Launch at login", isOn: $launchAtLogin)
                         caption("App auto-syncs every 30 minutes while running. Use the ⟳ button in the header for an immediate refresh.")
+                        Toggle("Show Copilot code review", isOn: $copilotReview)
+                        caption("Adds “Ask Copilot to review” to the PR detail pane. Needs Copilot code review enabled for you on the repo's org.")
                     }
 
                     section(title: "GLOBAL HOTKEY", icon: "command") {
@@ -254,6 +257,7 @@ struct SettingsView: View {
         Config.scope            = scope
         Config.preferredIDE     = preferredIDE
         Config.workspaceBaseDir = baseDir
+        Config.copilotReviewEnabled = copilotReview
         Config.launchAtLogin    = launchAtLogin
 
         if hotkey != Config.hotkey {

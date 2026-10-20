@@ -303,7 +303,7 @@ struct GitHubClient: Sendable {
     /// `maxPages` so a pathological thread can't stall the diff view. Best-effort
     /// from the caller's side — the diff still renders if this throws.
     func fetchPRReviewComments(org: String, repo: String, number: Int) async throws -> [PRReviewComment] {
-        struct GHUserDTO: Decodable { let login: String; let avatarUrl: URL? }
+        struct GHUserDTO: Decodable { let login: String; let avatarUrl: URL?; let type: String? }
         struct GHReviewCommentDTO: Decodable {
             let id: Int
             let user: GHUserDTO?
@@ -335,7 +335,8 @@ struct GitHubClient: Sendable {
                     line: dto.line ?? dto.originalLine,
                     startLine: dto.startLine,
                     createdAt: dto.createdAt,
-                    inReplyToID: dto.inReplyToId
+                    inReplyToID: dto.inReplyToId,
+                    isBot: dto.user?.type == "Bot"
                 )
             })
             if batch.count < 100 { break }
@@ -392,6 +393,68 @@ struct GitHubClient: Sendable {
             ? "mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { isDraft } } }"
             : "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }"
         try await graphql(query: mutation, variables: ["id": nodeID])
+    }
+
+    /// Copilot's code-review bot. Requests take the `[bot]`-suffixed login;
+    /// review authors and requested reviewers report it without the suffix.
+    static let copilotReviewerLogin = "copilot-pull-request-reviewer"
+
+    /// Whether Copilot is reviewing now, and which commit it last reviewed.
+    func fetchCopilotReview(org: String, repo: String, number: Int) async throws -> CopilotReviewState {
+        struct Payload: Decodable {
+            struct Bot: Decodable { let login: String? }
+            struct Request: Decodable { let requestedReviewer: Bot? }
+            struct Requests: Decodable { let nodes: [Request] }
+            struct Commit: Decodable { let oid: String }
+            struct Review: Decodable { let submittedAt: Date?; let commit: Commit? }
+            struct Reviews: Decodable { let nodes: [Review] }
+            struct PR: Decodable { let reviewRequests: Requests; let reviews: Reviews }
+            struct Repo: Decodable { let pullRequest: PR? }
+            let repository: Repo?
+        }
+        let query = """
+        query($o: String!, $r: String!, $n: Int!) {
+          repository(owner: $o, name: $r) {
+            pullRequest(number: $n) {
+              reviewRequests(first: 50) {
+                nodes { requestedReviewer { ... on Bot { login } } }
+              }
+              reviews(last: 1, author: "\(Self.copilotReviewerLogin)[bot]") {
+                nodes { submittedAt commit { oid } }
+              }
+            }
+          }
+        }
+        """
+        let resp: Payload = try await graphqlFetch(
+            query: query, variables: ["o": org, "r": repo, "n": number]
+        )
+        guard let pr = resp.repository?.pullRequest else {
+            throw GitHubError(message: "PR not found")
+        }
+        let last = pr.reviews.nodes.last
+        return CopilotReviewState(
+            requested: pr.reviewRequests.nodes.contains {
+                $0.requestedReviewer?.login?.hasPrefix(Self.copilotReviewerLogin) == true
+            },
+            lastReviewAt: last?.submittedAt,
+            lastReviewedCommit: last?.commit?.oid
+        )
+    }
+
+    /// Ask Copilot to review (or re-review after new pushes). `union` keeps
+    /// the existing requested reviewers — the default would replace them.
+    /// Note GitHub accepts this even when the viewer can't use Copilot code
+    /// review; the review then simply never arrives.
+    func requestCopilotReview(nodeID: String) async throws {
+        try await graphql(
+            query: """
+            mutation($id: ID!, $bots: [String!]) {
+              requestReviewsByLogin(input: {pullRequestId: $id, botLogins: $bots, union: true}) { clientMutationId }
+            }
+            """,
+            variables: ["id": nodeID, "bots": ["\(Self.copilotReviewerLogin)[bot]"]]
+        )
     }
 
     /// Turn on auto-merge: GitHub merges (or, on a merge-queue branch, queues)

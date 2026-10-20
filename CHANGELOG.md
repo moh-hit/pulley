@@ -22,6 +22,18 @@ to settings shape or filesystem layout.
 - `queued · #2` and `auto-merge` chips in the window list and the popover.
 - Notifications when a PR drops out of the merge queue or loses
   auto-merge without merging. Changes you make from Pulley don't notify.
+- **Copilot code review.** **Ask Copilot to review** sits next to *Add a
+  review* in the detail pane. While the review runs, Pulley shows
+  *Copilot is reviewing…* and checks every 30 seconds. When it lands, the
+  status changes to *Copilot reviewed · 5m* (click to jump to its comments
+  in Files), and Copilot's inline comments load automatically. After a
+  new push it offers **Re-request**. If GitHub accepts the request but
+  Copilot never answers (it isn't enabled for you on that org), Pulley
+  says so after 10 minutes instead of spinning forever. You can hide it
+  in Settings → General.
+- Review comments from bots (Copilot, CodeRabbit, …) collapse to a
+  one-line summary with a `bot` tag, so people's comments stand out.
+  Click one to expand it.
 
 ### Changed
 - The merge confirmation only offers the methods the repo allows
