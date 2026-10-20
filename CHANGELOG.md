@@ -25,6 +25,13 @@ to settings shape or filesystem layout.
   Open Font License and icons under MIT; both fall back to system fonts
   and SF Symbols if they can't load.
 
+### Changed
+- **Calmer pull request list.** Each row is now the title and age, the
+  repo and number, and at most one chip for what needs attention —
+  conflicts, failing CI, merge queue, auto-merge, blocked, behind base,
+  running CI or draft, in that order. Review status stays on the colored
+  edge; branch and check details are in the detail pane.
+
 ### Fixed
 - The detail pane no longer keeps showing a pull request after a filter
   or search hides it from the list.

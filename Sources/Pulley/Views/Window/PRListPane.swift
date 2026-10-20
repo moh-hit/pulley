@@ -196,7 +196,6 @@ private struct WindowPRRow: View {
     @State private var hovered = false
     @State private var copied = false
     @State private var checkingOut = false
-    @State private var checksExpanded = false
 
     private var actionsVisible: Bool { hovered || isSelected || checkingOut }
 
@@ -247,39 +246,20 @@ private struct WindowPRRow: View {
                     .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
             }
 
+            // Scan line: where it lives and, at most, the one thing that
+            // needs attention. Status is the left bar; everything else is
+            // in the detail pane.
             HStack(spacing: 8) {
-                statusChip
-                if !pr.checks.isEmpty {
-                    checksChip
-                }
-                if pr.mergeableState.isActionable {
-                    mergeChip
-                }
-                MergeFlowChip(pr: pr)
-                StackChip(pr: pr)
-                if pr.isDraft {
-                    draftChip
-                }
-
                 repoLabel
-
-                if !pr.branch.isEmpty {
-                    branchInline
-                }
-
-                Spacer(minLength: 0)
-
                 Text("#\(String(pr.number))")
                     .font(Theme.mono(11))
-                    .foregroundColor(.secondary.opacity(0.55))
+                    .foregroundColor(.secondary.opacity(0.7))
                     .lineLimit(1)
                     .fixedSize()
-            }
-
-            if checksExpanded && !pr.checks.isEmpty {
-                ChecksInline(checks: pr.checks)
-                    .padding(.top, 4)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                Spacer(minLength: 0)
+                if let attention = RowAttention(pr: pr) {
+                    attentionChip(attention)
+                }
             }
         }
         .padding(.horizontal, 15)
@@ -288,68 +268,19 @@ private struct WindowPRRow: View {
 
     // MARK: chips
 
-    private var statusChip: some View {
-        Text(pr.status.label.lowercased())
-            .font(Theme.mono(10, .semibold))
-            .foregroundColor(statusColor(pr.status))
-            .lineLimit(1)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(
-                Capsule().fill(statusColor(pr.status).opacity(0.13))
-            )
-            .fixedSize()
-    }
-
-    private var checksChip: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.12)) { checksExpanded.toggle() }
-        } label: {
-            HStack(spacing: 3) {
-                Icon(checkGlyph(pr.checkStatus), size: 9)
-                Text("\(pr.checks.count)")
-                    .font(Theme.mono(10, .medium))
-                Icon(checksExpanded ? "chevron.up" : "chevron.down", size: 7)
-                    .foregroundColor(checkColor(pr.checkStatus).opacity(0.7))
-            }
-            .foregroundColor(checkColor(pr.checkStatus))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(checkColor(pr.checkStatus).opacity(0.12)))
-            .overlay(
-                Capsule().stroke(checkColor(pr.checkStatus).opacity(checksExpanded ? 0.4 : 0), lineWidth: 0.5)
-            )
-            .fixedSize()
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .help("CI: \(pr.checkStatus.label) — \(pr.checks.count) checks")
-    }
-
-    private var mergeChip: some View {
-        let c = mergeableColor(pr.mergeableState)
-        return HStack(spacing: 3) {
-            Icon(mergeableGlyph(pr.mergeableState), size: 9)
-            Text(pr.mergeableState.label)
-                .font(Theme.mono(10, .medium))
+    private func attentionChip(_ a: RowAttention) -> some View {
+        HStack(spacing: 4) {
+            Icon(a.icon, size: 10)
+            Text(a.label)
+                .font(Theme.ui(11, .medium))
                 .lineLimit(1)
         }
-        .foregroundColor(c)
-        .padding(.horizontal, 7)
+        .foregroundColor(a.tint)
+        .padding(.horizontal, 8)
         .padding(.vertical, 2)
-        .background(Capsule().fill(c.opacity(0.12)))
+        .background(Capsule().fill(a.tint.opacity(0.10)))
         .fixedSize()
-    }
-
-    private var draftChip: some View {
-        Text("draft")
-            .font(Theme.mono(10, .medium))
-            .foregroundColor(.secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(Color.primary.opacity(0.07)))
-            .fixedSize()
+        .help(a.help)
     }
 
     private var repoLabel: some View {
@@ -363,22 +294,7 @@ private struct WindowPRRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .frame(maxWidth: 150, alignment: .leading)
         .help("\(pr.org)/\(pr.repo)")
-    }
-
-    private var branchInline: some View {
-        HStack(spacing: 4) {
-            Icon("arrow.triangle.branch", size: 10)
-                .layoutPriority(1)
-            Text(pr.branch)
-                .font(Theme.mono(11))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(pr.branch)
-        }
-        .foregroundColor(.secondary.opacity(0.75))
-        .frame(maxWidth: 110, alignment: .leading)
     }
 
     // MARK: action strip
@@ -431,72 +347,6 @@ private struct WindowPRRow: View {
     }
 }
 
-// MARK: - Inline checks list
-
-private struct ChecksInline: View {
-    let checks: [CheckRun]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(checks) { c in
-                ChecksInlineRow(check: c)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color.primary.opacity(0.035))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-        )
-    }
-}
-
-private struct ChecksInlineRow: View {
-    let check: CheckRun
-    @State private var hovered = false
-
-    var body: some View {
-        Button {
-            if let url = check.url { PRActions.openInBrowser(url) }
-        } label: {
-            HStack(spacing: 8) {
-                Icon(checkGlyph(check.rolled), size: 10)
-                    .foregroundColor(checkColor(check.rolled))
-                    .frame(width: 12)
-                Text(check.name)
-                    .font(Theme.ui(11))
-                    .foregroundColor(.primary.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 6)
-                Text(check.stateLabel)
-                    .font(Theme.mono(9, .medium))
-                    .foregroundColor(checkColor(check.rolled).opacity(0.9))
-                if check.url != nil {
-                    Icon("arrow.up.right.square", size: 9)
-                        .foregroundColor(.secondary.opacity(hovered ? 0.9 : 0.35))
-                }
-            }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(hovered ? Color.primary.opacity(0.05) : .clear)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .disabled(check.url == nil)
-        .help(check.url == nil ? check.name : "\(check.name) — open")
-    }
-}
-
 // MARK: - Row icon button
 
 private struct RowIconButton: View {
@@ -528,5 +378,44 @@ private struct RowIconButton: View {
         if disabled { return .secondary.opacity(0.4) }
         if let tint = tint { return tint }
         return hovered ? .primary : .secondary.opacity(0.8)
+    }
+}
+
+/// The single most urgent condition on a PR, for its list row — or nil when
+/// nothing needs attention. Ordered by what blocks the PR soonest.
+struct RowAttention {
+    let label: String
+    let icon: String
+    let tint: Color
+    let help: String
+
+    init?(pr: PR) {
+        if pr.mergeableState == .dirty {
+            self.init("Conflicts", "exclamationmark.triangle.fill", .red, "Merge conflicts with the base branch")
+        } else if pr.checkStatus == .failure {
+            let failed = pr.checks.filter { $0.rolled == .failure }.count
+            self.init("CI failing", "xmark.octagon.fill", .red, "\(failed) of \(pr.checks.count) checks failing")
+        } else if let entry = pr.merge?.queueEntry {
+            self.init(entry.position <= 1 ? "Queued · next" : "Queued · #\(entry.position)", "list.number", mergePurple, "In the merge queue — \(entry.summary)")
+        } else if pr.merge?.autoMerge != nil {
+            self.init("Auto-merge", "clock.arrow.circlepath", mergePurple, "Merges once requirements pass")
+        } else if pr.mergeableState == .blocked {
+            self.init("Blocked", "lock.fill", .orange, "Blocked by required reviews or branch protection")
+        } else if pr.mergeableState == .behind {
+            self.init("Behind base", "arrow.down.circle.fill", .orange, "Base branch has moved ahead")
+        } else if pr.checkStatus == .pending {
+            self.init("CI running", "clock.fill", .orange, "Checks still running")
+        } else if pr.isDraft {
+            self.init("Draft", "circle.dashed", .secondary, "Draft pull request")
+        } else {
+            return nil
+        }
+    }
+
+    private init(_ label: String, _ icon: String, _ tint: Color, _ help: String) {
+        self.label = label
+        self.icon = icon
+        self.tint = tint
+        self.help = help
     }
 }
