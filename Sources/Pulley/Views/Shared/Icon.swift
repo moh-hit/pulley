@@ -4,8 +4,7 @@ import AppKit
 /// An icon from the bundled Phosphor set (Resources/Icons, MIT — see
 /// Phosphor-LICENSE.txt), addressed by the SF Symbol name it replaces so
 /// call sites read like `Image(systemName:)`. A `.fill` suffix picks
-/// Phosphor's fill weight; otherwise sizes of 13pt and up use the light
-/// weight and smaller ones regular, which holds up better at small sizes.
+/// Phosphor's fill weight; otherwise sizes under 16pt use bold, which holds up next to medium-weight text.
 /// Anything unmapped, or an SVG that fails to load (NSImage only renders
 /// SVG on newer macOS), falls back to the SF Symbol itself.
 struct Icon: View {
@@ -111,7 +110,7 @@ enum PhosphorIcons {
         "text.bubble": "chat-text",
         "trash": "trash",
         "tray": "tray",
-        "tray.full": "tray-arrow-down",
+        "tray.full": "squares-four",
         "xmark": "x",
         "xmark.circle": "x-circle",
         "xmark.octagon": "x-circle",
@@ -123,7 +122,9 @@ enum PhosphorIcons {
         let isFill = sfName.hasSuffix(".fill")
         let base = isFill ? String(sfName.dropLast(5)) : sfName
         guard let ph = map[base] else { return nil }
-        let file = isFill ? "\(ph)-fill" : (size >= 13 ? "\(ph)-light" : ph)
+        // Bold below 16pt, where thinner strokes wash out next to Geist's
+        // medium text; regular only for large glyphs.
+        let file = isFill ? "\(ph)-fill" : (size >= 16 ? ph : "\(ph)-bold")
         let key = "\(file)@\(size)"
         if let cached = cache[key] { return cached }
         guard let url = Bundle.pulleyResources.url(forResource: file, withExtension: "svg"),

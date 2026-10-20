@@ -42,6 +42,54 @@ to settings shape or filesystem layout.
   pending checks, a neutral wordmark, and a red (not orange) sync-error
   banner.
 
+### Added (window hardening)
+- **Contribution graph on Home.** Your GitHub contribution calendar in a
+  right-hand column: the last 20 weeks (the whole year when there's room)
+  in GitHub's greens, the year's total, current streak, last-30-days
+  count, and a per-day tooltip. Refreshed at most hourly.
+- **Keyboard navigation in the window.** ↓/j and ↑/k move through the PR
+  list (it scrolls to follow), ↩ opens on GitHub, ⌘. or o opens in your
+  IDE, c copies the branch, Esc clears the selection.
+- **CI failing** card on Home, opening a list of PRs with failing checks.
+- **Sync errors in the window.** A failed sync now shows a plain-language
+  banner with **Retry** (and **Open settings** for token/org problems)
+  above the content, and the sidebar's sync row turns red. The popover
+  uses the same banner.
+
+### Changed (window hardening)
+- Detail header: the four status pills become one quiet text line (red
+  only for blockers); the redundant Copy branch button is gone. **Merge**
+  is purple only when a PR can merge or queue right now, "Merge when
+  ready" is a plain button, nothing is offered on a PR with changes
+  requested, and the IDE button steps back while merge is the moment.
+- The row chip's waiting states are amber again (blocked, behind base, CI
+  running); blockers stay red and the merge flow purple.
+- Icons are bolder (Phosphor bold under 16pt).
+- The popover matches the window: serif wordmark, the same two-line rows
+  with one attention chip, soft selection.
+- One type scale (11/12/13/14/20), no text under 11pt, no opacity on text,
+  one eyebrow style; "Changes req." is spelled out.
+- The window remembers its size and position (it used to re-maximize on
+  every open), and its minimum width is 920. Below 1060pt the sidebar folds
+  to its icon rail on its own, and the Settings sheet shrinks to fit short
+  windows.
+- Panel title reads "All pull requests", the Group menu "By status", and
+  the All icon is no longer a download tray.
+
+### Fixed (window hardening)
+- Detail pane overflowed and clipped its title and buttons at narrow
+  widths; the button row now wraps.
+- The sidebar toggle couldn't be clicked (it sat in the title-bar zone,
+  which swallows mouse clicks); it now lives beside the wordmark / at the
+  top of the rail. The window buttons no longer overlap the panel corner.
+- VoiceOver: PR rows, Inbox rows, check rows and bot comments are real
+  buttons with labels and states; 12 icon-only buttons are labelled;
+  "Mark as read" is also a context-menu item and a VoiceOver action;
+  sidebar counts are announced.
+- Long titles truncated early because the hidden hover actions reserved
+  width; they now overlay the title end. The sidebar scrolls when there are
+  many organizations, keeping Settings in view.
+
 ### Fixed
 - The detail pane no longer keeps showing a pull request after a filter
   or search hides it from the list.

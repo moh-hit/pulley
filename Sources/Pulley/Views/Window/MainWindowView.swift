@@ -8,12 +8,15 @@ enum SidebarFilter: Hashable, Identifiable {
     case all
     case status(PRStatus)
     case org(String)
+    /// Reached from Home's "CI failing" card; not a sidebar entry.
+    case failingCI
 
     var id: String {
         switch self {
         case .all:             return "all"
         case .status(let s):   return "status:\(s.rawValue)"
         case .org(let o):      return "org:\(o)"
+        case .failingCI:       return "failingCI"
         }
     }
 
@@ -25,6 +28,7 @@ enum SidebarFilter: Hashable, Identifiable {
         case .status(.review):   return "In review"
         case .status(.open):     return "Open"
         case .org(let o):        return o
+        case .failingCI:         return "CI failing"
         }
     }
 
@@ -36,6 +40,7 @@ enum SidebarFilter: Hashable, Identifiable {
         case .status(.review):  return "eye"
         case .status(.open):    return "circle.dashed"
         case .org:              return "building.2"
+        case .failingCI:        return "xmark.octagon.fill"
         }
     }
 }
@@ -46,6 +51,8 @@ struct MainWindowView: View {
     @State private var selectedPRID: String? = nil
     @State private var query: String = ""
     @State private var showSettings: Bool = false
+    /// Sidebar collapsed to the icon rail — the user's choice, remembered.
+    @AppStorage("ui.sidebarCollapsed") private var userCollapsed = false
     @State private var groupMode: ListGroupMode = .none
     /// True while the detail pane is showing a full-pane file diff — we hide the
     /// PR list so the diff spans the whole panel.
@@ -62,6 +69,7 @@ struct MainWindowView: View {
         case .all:                base = store.prs
         case .status(let s):      base = store.prs.filter { $0.status == s }
         case .org(let o):         base = store.prs.filter { $0.org == o }
+        case .failingCI:          base = store.prs.filter { $0.checkStatus == .failure }
         }
         guard !query.isEmpty else { return base }
         let q = query.lowercased()
@@ -77,25 +85,55 @@ struct MainWindowView: View {
         return filtered.first { $0.id == id }
     }
 
+    /// Below this width the expanded sidebar (214) + list (340) + detail (480)
+    /// + panel padding no longer fit, so the sidebar folds to its icon rail.
+    private static let narrowWidth: CGFloat = 1060
+
     var body: some View {
-        HStack(spacing: 0) {
-            SidebarView(section: $section, onOpenSettings: { showSettings = true })
-            panel
+        GeometryReader { geo in
+            content(narrow: geo.size.width < Self.narrowWidth, height: geo.size.height)
+        }
+    }
+
+    private func content(narrow: Bool, height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            topStrip(narrow: narrow)
+            HStack(spacing: 0) {
+            SidebarView(
+                section: $section,
+                onOpenSettings: { showSettings = true },
+                collapsed: userCollapsed || narrow,
+                canToggle: !narrow,
+                onToggle: { withAnimation(.easeOut(duration: 0.18)) { userCollapsed.toggle() } }
+            )
+            VStack(spacing: 0) {
+                if let error = store.lastError {
+                    SyncErrorBanner(
+                        problem: SyncProblem(raw: error),
+                        onRetry: { store.sync() },
+                        onOpenSettings: { showSettings = true }
+                    )
+                }
+                panel
+            }
                 .background(Theme.panel)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Theme.hairline, lineWidth: 1)
                 )
-                .padding(.vertical, 10)
+                .padding(.bottom, 10)
                 .padding(.trailing, 10)
+            }
         }
         .background(Theme.chrome)
+        .background(KeyCommands { handle($0) })
         .ignoresSafeArea()
         .sheet(isPresented: $showSettings) {
             SettingsView(onClose: { showSettings = false })
                 .environmentObject(store)
-                .frame(width: 560, height: 640)
+                // Leave room for the title bar in short windows.
+                .frame(width: 560, height: min(640, max(380, height - 70)))
         }
         .onChange(of: section) { _ in
             query = ""
@@ -119,7 +157,7 @@ struct MainWindowView: View {
             VStack(spacing: 0) {
                 if !(diffFullScreen && selectedPR != nil) {
                     PanelHeader(
-                        title: filter.label,
+                        title: filter == .all ? "All pull requests" : filter.label,
                         subtitle: "\(filtered.count) pull request\(filtered.count == 1 ? "" : "s")",
                         query: $query,
                         searchPrompt: "Search pull requests",
@@ -172,6 +210,48 @@ struct MainWindowView: View {
                     }
                 )
             }
+        }
+    }
+
+    /// The warm strip across the top, holding the window buttons; the content
+    /// panel starts below it so nothing straddles the panel's edge.
+    private func topStrip(narrow: Bool) -> some View {
+        // Window buttons only. Controls placed in this title-bar zone never
+        // receive mouse clicks (the window claims them for dragging), so the
+        // sidebar toggle lives in the sidebar, just below.
+        Color.clear.frame(height: 32)
+    }
+
+    /// List keyboard commands. Only meaningful on a PR list.
+    private func handle(_ command: KeyCommand) -> Bool {
+        guard filter != nil else { return false }
+        switch command {
+        case .move(let delta):
+            let ids = filtered.map(\.id)
+            guard !ids.isEmpty else { return true }
+            let current = selectedPRID.flatMap { ids.firstIndex(of: $0) }
+            let next = current.map { min(max($0 + delta, 0), ids.count - 1) } ?? (delta > 0 ? 0 : ids.count - 1)
+            selectedPRID = ids[next]
+            return true
+        case .openOnGitHub:
+            guard let pr = selectedPR else { return false }
+            PRActions.openInBrowser(pr.url)
+            return true
+        case .openInIDE:
+            guard let pr = selectedPR else { return false }
+            PRActions.checkoutAndOpen(pr: pr)
+            return true
+        case .copyBranch:
+            guard let pr = selectedPR, !pr.branch.isEmpty else { return false }
+            PRActions.copyToPasteboard(pr.branch)
+            return true
+        case .escape:
+            if selectedPRID != nil, !(NSApp.keyWindow?.firstResponder is NSText) {
+                selectedPRID = nil
+                return true
+            }
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            return true
         }
     }
 

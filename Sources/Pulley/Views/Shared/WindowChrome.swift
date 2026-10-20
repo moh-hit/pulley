@@ -3,30 +3,6 @@ import AppKit
 
 // MARK: - Detail-pane chrome
 
-struct StatusBadge: View {
-    let text: String
-    let color: Color
-    let filled: Bool
-
-    var body: some View {
-        Text(text)
-            .font(Theme.mono(10, .semibold))
-            .foregroundColor(filled ? .white : color)
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 3)
-            .background(
-                Capsule().fill(filled ? color : color.opacity(0.15))
-            )
-            .overlay(
-                Capsule().stroke(
-                    filled ? Color.clear : color.opacity(0.35),
-                    lineWidth: 0.5
-                )
-            )
-            .fixedSize()
-    }
-}
 
 struct BranchPill: View {
     let branch: String
@@ -172,7 +148,7 @@ struct MergeFlowChip: View {
         HStack(spacing: 3) {
             Icon(icon, size: 9)
             Text(text)
-                .font(Theme.mono(10, .medium))
+                .font(Theme.mono(11, .medium))
                 .lineLimit(1)
         }
         .foregroundColor(tint)
@@ -193,7 +169,7 @@ struct StackChip: View {
             HStack(spacing: 3) {
                 Icon("square.stack.3d.up", size: 9)
                 Text("\(stack.position)/\(stack.size)")
-                    .font(Theme.mono(10, .medium))
+                    .font(Theme.mono(11, .medium))
             }
             .foregroundColor(.secondary)
             .padding(.horizontal, 6)

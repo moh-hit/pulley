@@ -110,7 +110,7 @@ struct MarkdownView: View {
                 if !lang.isEmpty {
                     HStack {
                         Text(lang.uppercased())
-                            .font(Theme.mono(9, .semibold))
+                            .font(Theme.mono(11, .semibold))
                             .tracking(1.2)
                             .foregroundColor(.secondary)
                         Spacer()

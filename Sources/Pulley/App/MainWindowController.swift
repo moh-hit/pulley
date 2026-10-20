@@ -7,6 +7,7 @@ import SwiftUI
 /// keyboard focus, Cmd-Tab. On close we drop back to `.accessory`.
 @MainActor
 final class MainWindowController: NSWindowController, NSWindowDelegate {
+    private static let frameName = "PulleyMainWindow"
     private let store: Store
 
     init(store: Store) {
@@ -24,8 +25,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.title = "Pulley"
-        window.minSize = NSSize(width: 900, height: 560)
-        window.setFrame(defaultFrame, display: true)
+        // Collapsed rail 76 + list 340 + detail 480 + padding fits in 920.
+        window.minSize = NSSize(width: 920, height: 600)
         window.isReleasedWhenClosed = false
         // Content runs under a transparent title bar so the sidebar's warm
         // chrome reaches the top edge, with the traffic lights over it.
@@ -38,18 +39,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.contentViewController = NSHostingController(
             rootView: MainWindowView().environmentObject(store)
         )
+
+        // First launch fills the screen; after that the window keeps whatever
+        // size and position the user gave it (AppKit saves it on every move).
+        // This must come after the content controller is set, which resizes
+        // the window to its own preferred size.
+        window.setFrame(defaultFrame, display: true)
+        window.setFrameUsingName(Self.frameName)
+        window.setFrameAutosaveName(Self.frameName)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
     func show() {
         NSApp.setActivationPolicy(.regular)
-        // Open at full visible-screen width by default. The window persists
-        // across closes (isReleasedWhenClosed = false), so re-apply on each
-        // open rather than only at construction.
-        if let screen = window?.screen ?? NSScreen.main {
-            window?.setFrame(screen.visibleFrame, display: true)
-        }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

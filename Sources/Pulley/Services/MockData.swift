@@ -6,6 +6,9 @@ import Foundation
 enum MockData {
     #if DEBUG
     static let isEnabled = ProcessInfo.processInfo.environment["PULLEY_MOCK_DATA"] == "1"
+    /// Start with a failed sync, e.g. `PULLEY_MOCK_ERROR="401 Unauthorized"`.
+    /// Retry in mock mode clears it, so the banner's recovery path is testable.
+    static let initialError = ProcessInfo.processInfo.environment["PULLEY_MOCK_ERROR"]
 
     private struct Spec {
         let number: Int
@@ -111,6 +114,60 @@ enum MockData {
         1207: StackInfo(number: 41, size: 3, position: 3),
     ]
 
+    /// A year of plausible activity: busier on weekdays, quiet stretches, and
+    /// a live streak ending today.
+    static var contributions: ContributionCalendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let today = cal.startOfDay(for: Date())
+        let weekdayToday = cal.component(.weekday, from: today) - 1    // 0 = Sunday
+        // 52 full weeks plus the current partial one.
+        let start = cal.date(byAdding: .day, value: -(52 * 7 + weekdayToday), to: today)!
+        var weeks: [[ContributionCalendar.Day]] = []
+        var total = 0
+        var day = start
+        while day <= today {
+            var week: [ContributionCalendar.Day] = []
+            for _ in 0..<7 where day <= today {
+                let idx = cal.dateComponents([.day], from: start, to: day).day ?? 0
+                let wd = cal.component(.weekday, from: day) - 1
+                let daysAgo = cal.dateComponents([.day], from: day, to: today).day ?? 0
+                // Deterministic pseudo-random level, damped on weekends.
+                var h = UInt64(idx &* 2654435761 &+ 97) % 100
+                if wd == 0 || wd == 6 { h = h % 60 }
+                let count: Int
+                if daysAgo < 6 { count = 2 + Int(h % 9) }              // live streak
+                else if h < 38 { count = 0 }
+                else if h < 70 { count = 1 + Int(h % 3) }
+                else if h < 90 { count = 4 + Int(h % 5) }
+                else { count = 9 + Int(h % 12) }
+                total += count
+                week.append(.init(date: day, count: count, weekday: wd))
+                day = cal.date(byAdding: .day, value: 1, to: day)!
+            }
+            weeks.append(week)
+        }
+        return ContributionCalendar(weeks: weeks, total: total)
+    }
+
+    /// A few notifications so the Inbox has something to show.
+    static var inbox: [InboxThread] {
+        let now = Date()
+        func thread(_ id: String, _ title: String, _ type: String, _ reason: String,
+                    _ repo: String, minutesAgo: Int, unread: Bool = true) -> InboxThread {
+            InboxThread(
+                id: id, title: title, type: type, reason: reason, org: "acme", repo: repo,
+                updatedAt: now.addingTimeInterval(TimeInterval(-60 * minutesAgo)),
+                unread: unread, url: URL(string: "https://example.com/acme/\(repo)")
+            )
+        }
+        return [
+            thread("t1", "Fix race in webhook retry queue", "PullRequest", "review_requested", "api", minutesAgo: 12),
+            thread("t2", "Support passkeys during sign in", "PullRequest", "mention", "mobile", minutesAgo: 95),
+            thread("t3", "Dependency audit failed on main", "Issue", "security_alert", "web", minutesAgo: 340),
+        ]
+    }
+
     /// Placeholder PR description so previews show a rendered body.
     static func description(for pr: PR) -> String {
         """
@@ -195,11 +252,14 @@ enum MockData {
     }
     #else
     static let isEnabled = false
+    static let initialError: String? = nil
     static var prs: [PR] { [] }
     static func copilotReview(for pr: PR) -> CopilotReviewState {
         CopilotReviewState(requested: false, lastReviewAt: nil, lastReviewedCommit: nil)
     }
     static func stackEntries(for pr: PR) -> [StackEntry] { [] }
     static func description(for pr: PR) -> String { "" }
+    static var inbox: [InboxThread] { [] }
+    static var contributions: ContributionCalendar? { nil }
     #endif
 }

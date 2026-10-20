@@ -11,6 +11,10 @@ final class Store: ObservableObject {
     @Published var lastSync: Date? = nil
     /// First name (or login) for the main window's greeting. Fetched once.
     @Published var viewerName: String? = nil
+    /// Contribution graph for Home. Refreshed at most hourly, cached on disk.
+    @Published var contributions: ContributionCalendar? = nil
+    private var contributionsFetchedAt: Date? = nil
+    private let contributionsCacheKey = "store.contributions.v1"
 
     /// True only for debug launches explicitly started with
     /// `PULLEY_MOCK_DATA=1`. Mock mode never reads or writes user data.
@@ -61,6 +65,9 @@ final class Store: ObservableObject {
             prs = MockData.prs
             lastSync = Date().addingTimeInterval(-60)
             viewerName = "Mohit"
+            notifications = MockData.inbox
+            contributions = MockData.contributions
+            lastError = MockData.initialError
         } else {
             loadCache()
             startTimer()
@@ -70,6 +77,10 @@ final class Store: ObservableObject {
     /// Restore the last sync's PR list so the popover shows something
     /// immediately on launch — the next `sync()` overwrites it.
     private func loadCache() {
+        if let data = UserDefaults.standard.data(forKey: contributionsCacheKey),
+           let cached = try? JSONDecoder().decode(ContributionCalendar.self, from: data) {
+            contributions = cached
+        }
         if let data = UserDefaults.standard.data(forKey: cacheKey),
            let cached = try? JSONDecoder().decode([PR].self, from: data) {
             self.prs = cached
@@ -181,6 +192,7 @@ final class Store: ObservableObject {
                 if self.viewerName == nil {
                     self.viewerName = try? await client.fetchViewerFirstName()
                 }
+                await self.refreshContributions(client: client)
                 NotificationsManager.shared.requestAuthorizationIfNeeded()
                 // Merge-flow changes the user just made themselves shouldn't
                 // come back as "removed from queue" style notifications.
@@ -200,6 +212,18 @@ final class Store: ObservableObject {
             } catch {
                 self.lastError = error.localizedDescription
                 self.syncing = false
+            }
+        }
+    }
+
+    /// Best-effort: a failure leaves whatever is cached.
+    private func refreshContributions(client: GitHubClient) async {
+        if let last = contributionsFetchedAt, Date().timeIntervalSince(last) < 3600 { return }
+        if let fresh = try? await client.fetchContributions() {
+            contributions = fresh
+            contributionsFetchedAt = Date()
+            if let data = try? JSONEncoder().encode(fresh) {
+                UserDefaults.standard.set(data, forKey: contributionsCacheKey)
             }
         }
     }

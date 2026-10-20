@@ -25,13 +25,13 @@ struct PRListPane: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Icon("tray", size: 32)
-                .foregroundColor(.secondary.opacity(0.45))
+                .foregroundColor(.secondary)
             Text("Nothing here")
                 .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
             Text("Try a different filter or sync.")
                 .font(Theme.ui(11))
-                .foregroundColor(.secondary.opacity(0.7))
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -40,6 +40,7 @@ struct PRListPane: View {
 
     @ViewBuilder
     private var listBody: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 if groupMode == .none {
@@ -49,8 +50,9 @@ struct PRListPane: View {
                             isSelected: selectedPRID == pr.id,
                             onSelect: { selectedPRID = pr.id }
                         )
+.id(pr.id)
                         if idx < prs.count - 1 {
-                            Divider().opacity(0.35).padding(.leading, 18)
+                            Rectangle().fill(Theme.hairline).frame(height: 1).padding(.leading, 18)
                         }
                     }
                 } else {
@@ -62,8 +64,9 @@ struct PRListPane: View {
                                     isSelected: selectedPRID == pr.id,
                                     onSelect: { selectedPRID = pr.id }
                                 )
+.id(pr.id)
                                 if idx < group.prs.count - 1 {
-                                    Divider().opacity(0.35).padding(.leading, 18)
+                                    Rectangle().fill(Theme.hairline).frame(height: 1).padding(.leading, 18)
                                 }
                             }
                         } header: {
@@ -72,6 +75,11 @@ struct PRListPane: View {
                     }
                 }
             }
+        }
+        .onChange(of: selectedPRID) { id in
+            guard let id else { return }
+            withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(id) }
+        }
         }
     }
 
@@ -88,12 +96,11 @@ struct PRListPane: View {
                 .fill(groupAccent(group))
                 .frame(width: 7, height: 7)
             Text(group.label)
-                .font(Theme.mono(12, .semibold))
-                .tracking(0.6)
-                .foregroundColor(.primary.opacity(0.9))
+                .font(Theme.ui(12, .medium))
+                .foregroundColor(.primary)
                 .lineLimit(1)
             Text("\(group.prs.count)")
-                .font(Theme.mono(10, .medium))
+                .font(Theme.mono(11, .medium))
                 .foregroundColor(.secondary.opacity(0.8))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1.5)
@@ -205,6 +212,19 @@ private struct WindowPRRow: View {
         .clipped()
         .onHover { hovered = $0 }
         .onTapGesture { onSelect() }
+        // VoiceOver: one button per row, named by what it is, with its own
+        // row actions still reachable inside it.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(rowAccessibilityLabel)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { onSelect() }
+    }
+
+    private var rowAccessibilityLabel: String {
+        var parts = [pr.title, "\(pr.repo) number \(pr.number)", pr.status.label]
+        if let attention = RowAttention(pr: pr) { parts.append(attention.label) }
+        parts.append("updated \(relativeTime(pr.updatedAt)) ago")
+        return parts.joined(separator: ", ")
     }
 
     private var statusBar: some View {
@@ -231,15 +251,22 @@ private struct WindowPRRow: View {
                     .layoutPriority(1)
                     .help(pr.title)
 
-                actionStrip
-                    .opacity(actionsVisible ? 1 : 0)
-                    .allowsHitTesting(actionsVisible)
-
                 Text(relativeTime(pr.updatedAt))
                     .font(Theme.mono(11))
                     .foregroundColor(.secondary.opacity(0.85))
                     .frame(width: 44, alignment: .trailing)
                     .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+            }
+            // Hover / selection actions sit over the end of the title rather
+            // than reserving width for it, so long titles keep their room.
+            .overlay(alignment: .trailing) {
+                actionStrip
+                    .padding(.leading, 12)
+                    // Opaque under the row tint, so the title doesn't show through.
+                    .background(Theme.panel.overlay(rowBackground))
+                    .padding(.trailing, 54)
+                    .opacity(actionsVisible ? 1 : 0)
+                    .allowsHitTesting(actionsVisible)
             }
 
             // Scan line: where it lives and, at most, the one thing that
@@ -249,12 +276,12 @@ private struct WindowPRRow: View {
                 repoLabel
                 Text("#\(String(pr.number))")
                     .font(Theme.mono(11))
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .foregroundColor(.secondary)
                     .lineLimit(1)
                     .fixedSize()
                 Spacer(minLength: 0)
                 if let attention = RowAttention(pr: pr) {
-                    attentionChip(attention)
+                    AttentionChip(attention: attention)
                 }
             }
         }
@@ -264,24 +291,10 @@ private struct WindowPRRow: View {
 
     // MARK: chips
 
-    private func attentionChip(_ a: RowAttention) -> some View {
-        HStack(spacing: 4) {
-            Icon(a.icon, size: 10)
-            Text(a.label)
-                .font(Theme.ui(11, .medium))
-                .lineLimit(1)
-        }
-        .foregroundColor(a.tint)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .background(Capsule().fill(a.tint.opacity(0.10)))
-        .fixedSize()
-        .help(a.help)
-    }
 
     private var repoLabel: some View {
         HStack(spacing: 4) {
-            (Text(pr.org + "/").foregroundColor(.secondary.opacity(0.6))
+            (Text(pr.org + "/").foregroundColor(.secondary)
              + Text(pr.repo).foregroundColor(.secondary))
                 .font(Theme.mono(11, .regular))
                 .lineLimit(1)
@@ -297,7 +310,7 @@ private struct WindowPRRow: View {
             RowIconButton(
                 icon: "doc.on.doc",
                 help: copied ? "Copied" : "Copy branch",
-                tint: copied ? .green : nil,
+                tint: copied ? .primary : nil,
                 disabled: pr.branch.isEmpty
             ) {
                 PRActions.copyToPasteboard(pr.branch)
@@ -365,6 +378,7 @@ private struct RowIconButton: View {
         .onHover { hovered = $0 }
         .disabled(disabled)
         .help(help)
+        .accessibilityLabel(help)
     }
 
     private var foreground: Color {
@@ -393,11 +407,11 @@ struct RowAttention {
         } else if pr.merge?.autoMerge != nil {
             self.init("Auto-merge", "clock.arrow.circlepath", mergePurple, "Merges once requirements pass")
         } else if pr.mergeableState == .blocked {
-            self.init("Blocked", "lock.fill", .secondary, "Blocked by required reviews or branch protection")
+            self.init("Blocked", "lock.fill", .orange, "Blocked by required reviews or branch protection")
         } else if pr.mergeableState == .behind {
-            self.init("Behind base", "arrow.down.circle.fill", .secondary, "Base branch has moved ahead")
+            self.init("Behind base", "arrow.down.circle.fill", .orange, "Base branch has moved ahead")
         } else if pr.checkStatus == .pending {
-            self.init("CI running", "clock.fill", .secondary, "Checks still running")
+            self.init("CI running", "clock.fill", .orange, "Checks still running")
         } else if pr.isDraft {
             self.init("Draft", "circle.dashed", .secondary, "Draft pull request")
         } else {
@@ -410,5 +424,25 @@ struct RowAttention {
         self.icon = icon
         self.tint = tint
         self.help = help
+    }
+}
+
+/// The one-chip "what needs you" label shared by list rows and Home's feed.
+struct AttentionChip: View {
+    let attention: RowAttention
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Icon(attention.icon, size: 10)
+            Text(attention.label)
+                .font(Theme.ui(11, .medium))
+                .lineLimit(1)
+        }
+        .foregroundColor(attention.tint)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(attention.tint.opacity(0.10)))
+        .fixedSize()
+        .help(attention.help)
     }
 }

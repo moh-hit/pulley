@@ -17,8 +17,11 @@ struct SidebarView: View {
     let onOpenSettings: () -> Void
 
     @State private var nowTick = Date()
-    /// Collapsed to an icon-only rail. Remembered across launches.
-    @AppStorage("ui.sidebarCollapsed") private var collapsed = false
+    /// Icon-only rail, decided by the window (user choice or too narrow).
+    let collapsed: Bool
+    /// False when the window is too narrow for the full sidebar.
+    let canToggle: Bool
+    let onToggle: () -> Void
 
     private static let statuses: [PRStatus] = [.changes, .review, .approved, .open]
 
@@ -30,22 +33,21 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: collapsed ? .center : .leading, spacing: 2) {
             if collapsed {
-                // Below the traffic lights, which take the rail's top edge.
                 toggleButton
-                    .padding(.top, 38)
-                    .padding(.bottom, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
             } else {
-                HStack {
-                    Spacer().frame(width: 68)   // traffic lights
+                HStack(spacing: 0) {
+                    brand
+                    Spacer(minLength: 4)
                     toggleButton
-                    Spacer()
                 }
-                .frame(height: 28)
-                brand
-                    .padding(.top, 10)
-                    .padding(.bottom, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
             }
 
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: collapsed ? .center : .leading, spacing: 2) {
             SidebarItem(
                 title: "Home", icon: "house",
                 isSelected: section == .home, collapsed: collapsed, shortcut: "1"
@@ -89,8 +91,10 @@ struct SidebarView: View {
                     ) { section = .prs(.org(org.name)) }
                 }
             }
+                }
+            }
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 8)
 
             syncRow
             SidebarItem(title: "Settings", icon: "gearshape", isSelected: false, collapsed: collapsed, action: onOpenSettings)
@@ -98,7 +102,9 @@ struct SidebarView: View {
         }
         .padding(.horizontal, collapsed ? 8 : 10)
         .padding(.bottom, 12)
-        .frame(width: collapsed ? 64 : 214)
+        // The collapsed rail must clear the traffic lights (~70pt), or they
+        // overlap the content panel's rounded corner.
+        .frame(width: collapsed ? 76 : 214)
         .clipped()
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { nowTick = $0 }
     }
@@ -123,6 +129,22 @@ struct SidebarView: View {
         return image
     }
 
+    private var toggleButton: some View {
+        Button(action: onToggle) {
+            Icon("sidebar.left", size: 15)
+                .foregroundColor(.secondary)
+                .frame(width: 30, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("s", modifiers: [.command, .control])
+        .disabled(!canToggle)
+        .help(!canToggle
+              ? "Widen the window to show the sidebar"
+              : (collapsed ? "Show sidebar (⌃⌘S)" : "Hide sidebar (⌃⌘S)"))
+        .accessibilityLabel(collapsed ? "Show sidebar" : "Hide sidebar")
+    }
+
     @ViewBuilder
     private func groupLabel(_ text: String) -> some View {
         if collapsed {
@@ -140,20 +162,6 @@ struct SidebarView: View {
         }
     }
 
-    private var toggleButton: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.18)) { collapsed.toggle() }
-        } label: {
-            Icon("sidebar.left", size: 15)
-                .foregroundColor(.secondary)
-                .frame(width: 28, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut("s", modifiers: [.command, .control])
-        .help(collapsed ? "Show sidebar (⌃⌘S)" : "Hide sidebar (⌃⌘S)")
-        .accessibilityLabel(collapsed ? "Show sidebar" : "Hide sidebar")
-    }
 
     /// "Synced 2m ago" — click to sync now.
     private var syncRow: some View {
@@ -161,7 +169,10 @@ struct SidebarView: View {
             store.sync()
         } label: {
             HStack(spacing: 8) {
-                Icon(store.syncing ? "arrow.triangle.2.circlepath" : "arrow.clockwise", size: 12)
+                Icon(store.lastError != nil && !store.syncing
+                        ? "exclamationmark.triangle.fill"
+                        : (store.syncing ? "arrow.triangle.2.circlepath" : "arrow.clockwise"),
+                     size: 12)
                     .frame(width: 18)
                 if !collapsed {
                     Text(syncLabel)
@@ -169,19 +180,22 @@ struct SidebarView: View {
                     Spacer(minLength: 0)
                 }
             }
-            .foregroundColor(.secondary)
+            .foregroundColor(store.lastError != nil && !store.syncing ? .red : .secondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(store.syncing)
+        .accessibilityLabel(syncLabel)
         .keyboardShortcut("r", modifiers: .command)
-        .help(collapsed ? "\(syncLabel) — sync now (⌘R)" : "Sync now (⌘R)")
+        .help(store.lastError.map { SyncProblem(raw: $0).raw } ?? (collapsed ? "\(syncLabel) — sync now (⌘R)" : "Sync now (⌘R)"))
     }
 
     private var syncLabel: String {
-        store.syncing ? "Syncing…" : relativeSyncLabel(store.lastSync, now: nowTick).capitalizedFirst
+        if store.syncing { return "Syncing…" }
+        if store.lastError != nil { return "Couldn't sync · Retry" }
+        return relativeSyncLabel(store.lastSync, now: nowTick).capitalizedFirst
     }
 }
 
@@ -214,6 +228,7 @@ struct SidebarItem: View {
         .modifier(OptionalShortcut(key: shortcut))
         .help(collapsed ? title + (count.map { $0 > 0 ? " · \($0)" : "" } ?? "") : "")
         .accessibilityLabel(title)
+        .accessibilityValue(count.map { $0 > 0 ? "\($0)" : "" } ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 

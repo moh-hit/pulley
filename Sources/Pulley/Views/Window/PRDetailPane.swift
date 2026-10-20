@@ -211,11 +211,11 @@ struct PRDetailPane: View {
         Button { tab = t } label: {
             HStack(spacing: 6) {
                 Text(label)
-                    .font(Theme.ui(12.5, selected ? .semibold : .regular))
+                    .font(Theme.ui(12, selected ? .semibold : .regular))
                     .foregroundColor(selected ? .primary : .secondary)
                 if let count {
                     Text("\(count)\(t == .files && filesCapped ? "+" : "")")
-                        .font(Theme.mono(10, .semibold))
+                        .font(Theme.mono(11, .semibold))
                         .foregroundColor(selected ? .primary.opacity(0.85) : .secondary.opacity(0.7))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -266,10 +266,7 @@ struct PRDetailPane: View {
         if showReview {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("REVIEW")
-                        .font(Theme.mono(10, .semibold))
-                        .tracking(1.4)
-                        .foregroundColor(.secondary.opacity(0.75))
+                    Text("REVIEW").eyebrow()
                     Spacer()
                     copilotControl
                     Button {
@@ -431,7 +428,7 @@ struct PRDetailPane: View {
                             centeredMessage {
                                 VStack(spacing: 8) {
                                     Icon("sidebar.left", size: 26)
-                                        .foregroundColor(.secondary.opacity(0.35))
+                                        .foregroundColor(.secondary)
                                     Text("Select a file to view its diff.")
                                         .font(Theme.ui(13))
                                         .foregroundColor(.secondary)
@@ -493,10 +490,7 @@ struct PRDetailPane: View {
     @ViewBuilder
     private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title.uppercased())
-                .font(Theme.mono(10, .semibold))
-                .tracking(1.4)
-                .foregroundColor(.secondary.opacity(0.75))
+            Text(title.uppercased()).eyebrow()
             content()
         }
     }
@@ -534,35 +528,37 @@ struct PRDetailPane: View {
         }
     }
 
+    /// One quiet line of state instead of a row of pills: the sidebar, list
+    /// chip and left edge already carry status, so here it's context. Only
+    /// blockers are red.
     private var statusRow: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) {
-                StatusBadge(text: pr.status.label, color: pr.status == .changes ? .red : .secondary, filled: false)
-                if pr.isDraft {
-                    StatusBadge(text: "draft", color: .secondary, filled: false)
-                }
-                if pr.checkStatus != .none {
-                    StatusBadge(
-                        text: "CI · \(pr.checkStatus.label)",
-                        color: pr.checkStatus == .failure ? .red : .secondary,
-                        filled: false
-                    )
-                }
-                if pr.mergeableState.isActionable {
-                    StatusBadge(
-                        text: pr.mergeableState.label,
-                        color: pr.mergeableState == .dirty ? .red : .secondary,
-                        filled: false
-                    )
-                }
-                Spacer(minLength: 8)
-                diffStat
-            }
-            Text("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(Theme.mono(11))
-                .foregroundColor(.secondary.opacity(0.7))
-                .lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            statusText
+                .font(Theme.ui(12))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+            Spacer(minLength: 8)
+            diffStat
         }
+    }
+
+    private var statusText: Text {
+        var parts: [Text] = []
+        func part(_ text: String, red: Bool = false) {
+            parts.append(Text(text).foregroundColor(red ? .red : .secondary))
+        }
+        part(pr.status.label, red: pr.status == .changes)
+        if pr.isDraft { part("Draft") }
+        if pr.checkStatus != .none {
+            part("CI \(pr.checkStatus.label)", red: pr.checkStatus == .failure)
+        }
+        if pr.mergeableState.isActionable {
+            part(pr.mergeableState.label.capitalizedFirst, red: pr.mergeableState == .dirty)
+        }
+        part("Updated \(relativeTime(pr.updatedAt)) ago")
+        let dot = Text("  ·  ").foregroundColor(.secondary)
+        return parts.dropFirst().reduce(parts[0]) { $0 + dot + $1 }
     }
 
     private var totalAdditions: Int { files.reduce(0) { $0 + $1.additions } }
@@ -594,12 +590,12 @@ struct PRDetailPane: View {
 
     private var actionRow: some View {
       VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: 8) {
+        FlowLayout(spacing: 8, lineSpacing: 8) {
             DetailActionButton(
                 title: "Open in \(Config.preferredIDE.displayName)",
                 systemImage: Config.preferredIDE.fallbackSymbol,
                 nsImage: Config.preferredIDE.icon,
-                style: .primary
+                style: mergeIsTheMoment ? .secondary : .primary
             ) {
                 MainActor.assumeIsolated {
                     PRActions.checkoutAndOpen(pr: pr)
@@ -618,18 +614,7 @@ struct PRDetailPane: View {
             }
             .help("Open PR in browser")
 
-            if !pr.branch.isEmpty {
-                DetailActionButton(
-                    title: "Copy branch",
-                    systemImage: "doc.on.doc",
-                    style: .secondary
-                ) {
-                    PRActions.copyToPasteboard(pr.branch)
-                }
-                .help("Copy branch name")
-            }
 
-            Spacer()
         }
         // Merge errors surface here since the merge button lives in this row
         // and the review section (which has its own error line) may be closed.
@@ -702,7 +687,8 @@ struct PRDetailPane: View {
                 title: "Merge when ready",
                 help: queued
                     ? "Add to the merge queue automatically once requirements pass"
-                    : "Merge automatically once checks and reviews pass"
+                    : "Merge automatically once checks and reviews pass",
+                ready: false
             )
             .confirmationDialog(
                 "Merge \(pr.repo)#\(String(pr.number)) when ready?",
@@ -754,11 +740,17 @@ struct PRDetailPane: View {
         }
     }
 
-    private func mergeFlowButton(title: String, help: String) -> some View {
+    /// Ready to merge (or queue) right now — the one moment merge is the
+    /// loudest control on the page.
+    private var mergeIsTheMoment: Bool {
+        pr.mergeAction == .merge || pr.mergeAction == .enqueue
+    }
+
+    private func mergeFlowButton(title: String, help: String, ready: Bool = true) -> some View {
         DetailActionButton(
             title: title,
             systemImage: inflightAction == .merge ? "hourglass" : "arrow.triangle.merge",
-            style: .merge
+            style: ready ? .merge : .secondary
         ) {
             showMergeConfirm = true
         }
@@ -816,7 +808,7 @@ struct PRDetailPane: View {
                     ForEach(Array(stackEntries.enumerated()), id: \.element.id) { idx, entry in
                         if idx > 0 {
                             Icon("chevron.right", size: 8)
-                                .foregroundColor(.secondary.opacity(0.5))
+                                .foregroundColor(.secondary)
                         }
                         StackEntryChip(entry: entry, isCurrent: entry.number == pr.number) {
                             openStackEntry(entry)
@@ -868,7 +860,7 @@ struct PRDetailPane: View {
                 let emptyCount = draftComments.count - readyDraftComments.count
                 if emptyCount > 0 {
                     Text("\(emptyCount) empty")
-                        .font(Theme.mono(10, .medium))
+                        .font(Theme.mono(11, .medium))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
@@ -1309,12 +1301,12 @@ struct PRDetailPane: View {
                     .font(Theme.ui(13))
                 if expandable {
                     Icon("chevron.right", size: 9)
-                        .foregroundColor(.secondary.opacity(0.6))
+                        .foregroundColor(.secondary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
                 Spacer()
                 Text(c.conclusion ?? c.status)
-                    .font(Theme.mono(10, .medium))
+                    .font(Theme.mono(11, .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
@@ -1324,15 +1316,25 @@ struct PRDetailPane: View {
                         PRActions.openInBrowser(url)
                     } label: {
                         Icon("arrow.up.right.square", size: 12)
-                            .foregroundColor(.secondary.opacity(0.65))
+                            .foregroundColor(.secondary)
                     }
                     .buttonStyle(.borderless)
+                    .help("Open \(c.name) on GitHub")
+                    .accessibilityLabel("Open \(c.name) on GitHub")
                 }
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 4)
             .contentShape(Rectangle())
             .onTapGesture {
+                guard expandable else { return }
+                withAnimation(.easeOut(duration: 0.12)) { toggleCheckDetails(c) }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("\(c.name), \(c.rolled.label)")
+            .accessibilityValue(expandable ? (expanded ? "expanded" : "collapsed") : "")
+            .accessibilityAddTraits(expandable ? .isButton : [])
+            .accessibilityAction {
                 guard expandable else { return }
                 withAnimation(.easeOut(duration: 0.12)) { toggleCheckDetails(c) }
             }
@@ -1725,7 +1727,7 @@ private struct ReviewComposer: View {
             if text.isEmpty {
                 Text("Leave a comment…")
                     .font(Theme.ui(13))
-                    .foregroundColor(.secondary.opacity(0.55))
+                    .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .allowsHitTesting(false)
@@ -1776,7 +1778,7 @@ private struct FileStatusBadge: View {
     let status: String
     var body: some View {
         Text(fileStatusLetter(status))
-            .font(Theme.mono(9, .bold))
+            .font(Theme.mono(11, .bold))
             .foregroundColor(fileStatusTint(status))
             .frame(width: 15, height: 15)
             .background(
@@ -1937,7 +1939,7 @@ private struct FileTreeRow: View {
                     .foregroundColor(.secondary)
                     .frame(width: 10)
                 Icon("folder.fill", size: 11)
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .foregroundColor(.secondary)
             } else {
                 Spacer().frame(width: 10)
                 FileStatusBadge(status: node.file?.status ?? "")
@@ -1950,12 +1952,12 @@ private struct FileTreeRow: View {
             Spacer(minLength: 8)
             if node.additions > 0 {
                 Text("+\(node.additions)")
-                    .font(Theme.mono(10, .medium))
+                    .font(Theme.mono(11, .medium))
                     .foregroundColor(.green.opacity(node.isDir ? 0.6 : 1))
             }
             if node.deletions > 0 {
                 Text("−\(node.deletions)")
-                    .font(Theme.mono(10, .medium))
+                    .font(Theme.mono(11, .medium))
                     .foregroundColor(.red.opacity(node.isDir ? 0.6 : 1))
             }
         }
@@ -2003,10 +2005,11 @@ private struct FileDiffScreen: View {
                 if let url = file.blobUrl {
                     Button { PRActions.openInBrowser(url) } label: {
                         Icon("arrow.up.right.square", size: 12)
-                            .foregroundColor(.secondary.opacity(0.65))
+                            .foregroundColor(.secondary)
                     }
                     .buttonStyle(.borderless)
                     .help("Open this file on GitHub")
+                    .accessibilityLabel("Open this file on GitHub")
                 }
             }
             .padding(.horizontal, 20)
@@ -2322,8 +2325,8 @@ private struct DiffLineRow: View {
 
     private func gutter(_ n: Int?) -> some View {
         Text(n.map(String.init) ?? "")
-            .font(Theme.mono(10))
-            .foregroundColor(.secondary.opacity(0.6))
+            .font(Theme.mono(11))
+            .foregroundColor(.secondary)
             .frame(width: 38, alignment: .trailing)
             .padding(.trailing, 4)
     }
@@ -2340,6 +2343,7 @@ private struct DiffLineRow: View {
         }
         .buttonStyle(.plain)
         .help(hasDraft ? "Edit draft comment" : "Add draft comment")
+        .accessibilityLabel(hasDraft ? "Edit draft comment" : "Add draft comment")
         .opacity(isCommentable && (hovered || hasDraft) ? 1 : 0)
         .allowsHitTesting(isCommentable && (hovered || hasDraft))
         .frame(width: 28, alignment: .trailing)
@@ -2573,7 +2577,7 @@ private struct InlineDraftCommentEditor: View {
                         .font(Theme.ui(11, .semibold))
                         .foregroundColor(.primary)
                     Text(location)
-                        .font(Theme.mono(10))
+                        .font(Theme.mono(11))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -2584,6 +2588,7 @@ private struct InlineDraftCommentEditor: View {
                     }
                     .buttonStyle(.plain)
                     .help("Discard draft comment")
+                    .accessibilityLabel("Discard draft comment")
                 }
 
                 TextField("Leave an inline comment…", text: $text, axis: .vertical)
@@ -2640,18 +2645,18 @@ private struct PostedCommentRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(comment.authorLogin)
-                        .font(Theme.ui(11.5, .semibold))
+                        .font(Theme.ui(12, .semibold))
                         .foregroundColor(.primary)
                     if comment.isBot {
                         Text("bot")
-                            .font(Theme.mono(9, .medium))
+                            .font(Theme.mono(11, .medium))
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Capsule().fill(Color.primary.opacity(0.07)))
                     }
                     Text(relativeTime(comment.createdAt))
-                        .font(Theme.ui(10.5))
+                        .font(Theme.ui(11))
                         .foregroundColor(.secondary)
                     if collapsed {
                         Text(firstLine)
@@ -2663,7 +2668,7 @@ private struct PostedCommentRow: View {
                     Spacer(minLength: 0)
                     if comment.isBot {
                         Icon(botExpanded ? "chevron.up" : "chevron.down", size: 8)
-                            .foregroundColor(.secondary.opacity(0.7))
+                            .foregroundColor(.secondary)
                     }
                 }
                 if !collapsed {
@@ -2688,6 +2693,13 @@ private struct PostedCommentRow: View {
             withAnimation(.easeOut(duration: 0.12)) { botExpanded.toggle() }
         }
         .help(collapsed ? "Show bot comment" : "")
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(comment.isBot ? .isButton : [])
+        .accessibilityValue(comment.isBot ? (botExpanded ? "expanded" : "collapsed") : "")
+        .accessibilityAction {
+            guard comment.isBot else { return }
+            withAnimation(.easeOut(duration: 0.12)) { botExpanded.toggle() }
+        }
     }
 
     /// First non-empty line of the body, minus Markdown heading/emphasis
@@ -2751,13 +2763,13 @@ struct EmptyDetail: View {
     var body: some View {
         VStack(spacing: 10) {
             Icon("arrow.triangle.branch", size: 36)
-                .foregroundColor(.secondary.opacity(0.35))
+                .foregroundColor(.secondary)
             Text("Select a PR")
                 .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
-            Text("Click or use ↑ ↓ to preview.")
+            Text("Click a pull request, or use ↑ ↓ to move, ↩ to open on GitHub, ⌘. to open in your IDE.")
                 .font(Theme.ui(11))
-                .foregroundColor(.secondary.opacity(0.7))
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.panel)

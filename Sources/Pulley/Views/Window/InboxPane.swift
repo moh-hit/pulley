@@ -35,7 +35,7 @@ struct InboxPane: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Icon("tray", size: 32)
-                .foregroundColor(.secondary.opacity(0.45))
+                .foregroundColor(.secondary)
             Text(threads.isEmpty ? "Inbox zero" : "Nothing matches")
                 .font(Theme.ui(14, .medium))
                 .foregroundColor(.secondary)
@@ -43,7 +43,7 @@ struct InboxPane: View {
                  ? "No unread notifications. Sync to refresh."
                  : "Try a different search.")
                 .font(Theme.ui(11))
-                .foregroundColor(.secondary.opacity(0.7))
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -58,7 +58,7 @@ struct InboxPane: View {
                         onMarkRead: { onMarkRead(t.id) }
                     )
                     if idx < filtered.count - 1 {
-                        Divider().opacity(0.35).padding(.leading, 18)
+                        Rectangle().fill(Theme.hairline).frame(height: 1).padding(.leading, 18)
                     }
                 }
                 Color.clear.frame(height: 4)
@@ -128,6 +128,7 @@ private struct InboxRow: View {
                         }
                         .buttonStyle(.plain)
                         .help("Mark as read")
+                        .accessibilityLabel("Mark as read")
                     }
 
                     Text(relativeTime(thread.updatedAt))
@@ -151,6 +152,17 @@ private struct InboxRow: View {
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture { onOpen() }
+        // "Mark as read" shows only on hover, so it also lives on the context
+        // menu and as a VoiceOver action.
+        .contextMenu {
+            Button("Open on GitHub", action: onOpen)
+            if thread.unread { Button("Mark as read", action: onMarkRead) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(thread.title), \(thread.repo), \(thread.reasonLabel)\(thread.unread ? ", unread" : "")")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen() }
+        .accessibilityAction(named: "Mark as read") { onMarkRead() }
     }
 
     private var rowBackground: Color {
@@ -159,7 +171,7 @@ private struct InboxRow: View {
 
     private var reasonChip: some View {
         Text(thread.reasonLabel.lowercased())
-            .font(Theme.mono(10, .semibold))
+            .font(Theme.mono(11, .semibold))
             .foregroundColor(reasonTint)
             .lineLimit(1)
             .padding(.horizontal, 7)
@@ -170,7 +182,7 @@ private struct InboxRow: View {
 
     private var repoLabel: some View {
         HStack(spacing: 4) {
-            (Text(thread.org + "/").foregroundColor(.secondary.opacity(0.6))
+            (Text(thread.org + "/").foregroundColor(.secondary)
              + Text(thread.repo).foregroundColor(.secondary))
                 .font(Theme.mono(11, .regular))
                 .lineLimit(1)
