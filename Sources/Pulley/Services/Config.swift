@@ -157,6 +157,59 @@ enum Config {
         set { UserDefaults.standard.set(newValue, forKey: copilotReviewKey) }
     }
 
+    // MARK: - Preferences (applied live from Settings)
+
+    private static func string<T: RawRepresentable>(_ key: String, default value: T) -> T where T.RawValue == String {
+        UserDefaults.standard.string(forKey: key).flatMap(T.init(rawValue:)) ?? value
+    }
+    private static func bool(_ key: String, default value: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? value
+    }
+
+    static var startPage: StartPage {
+        get { string("ui.startPage", default: .home) }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "ui.startPage") }
+    }
+
+    /// Minutes between background syncs.
+    static var syncIntervalMinutes: Int {
+        get { (UserDefaults.standard.object(forKey: "sync.intervalMinutes") as? Int) ?? 30 }
+        set { UserDefaults.standard.set(newValue, forKey: "sync.intervalMinutes") }
+    }
+
+    static var menuBarCount: MenuBarCount {
+        get { string("ui.menuBarCount", default: .open) }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "ui.menuBarCount") }
+    }
+
+    static var appearance: AppearanceMode {
+        get { string(AppearanceMode.key, default: .system) }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: AppearanceMode.key) }
+    }
+
+    static var textSize: TextSize {
+        get { string(TextSize.key, default: .standard) }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: TextSize.key) }
+    }
+
+    static var listDensity: ListDensity {
+        get { string(ListDensity.key, default: .comfortable) }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: ListDensity.key) }
+    }
+
+    static var showContributions: Bool {
+        get { bool("ui.showContributions", default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: "ui.showContributions") }
+    }
+
+    static var collapseBotComments: Bool {
+        get { bool("review.collapseBotComments", default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: "review.collapseBotComments") }
+    }
+
+    static func notifies(_ kind: NotificationKind) -> Bool { bool(kind.key, default: true) }
+    static func setNotifies(_ kind: NotificationKind, _ on: Bool) { UserDefaults.standard.set(on, forKey: kind.key) }
+
     static var launchAtLogin: Bool {
         get {
             if #available(macOS 13.0, *) {
@@ -203,5 +256,120 @@ enum Keychain {
         var addQuery = baseQuery
         addQuery[kSecValueData as String] = data
         SecItemAdd(addQuery as CFDictionary, nil)
+    }
+}
+
+// MARK: - Preference values
+
+enum StartPage: String, CaseIterable, Identifiable {
+    case home, all, changes
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .home:    return "Home"
+        case .all:     return "All pull requests"
+        case .changes: return "Changes requested"
+        }
+    }
+}
+
+enum MenuBarCount: String, CaseIterable, Identifiable {
+    case open, attention, hidden
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .open:      return "Not yet approved"
+        case .attention: return "Only what needs you"
+        case .hidden:    return "Icon only"
+        }
+    }
+}
+
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system, light, dark
+    static let key = "ui.appearance"
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+}
+
+enum ListDensity: String, CaseIterable, Identifiable {
+    case comfortable, compact
+    static let key = "ui.listDensity"
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+    /// Vertical padding for list rows.
+    var rowPadding: CGFloat { self == .compact ? 6 : 11 }
+}
+
+enum TextSize: String, CaseIterable, Identifiable {
+    case small, standard, large
+    static let key = "ui.textSize"
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .small:    return "Small"
+        case .standard: return "Default"
+        case .large:    return "Large"
+        }
+    }
+    /// Multiplier applied to every Theme font and Icon size.
+    var scale: CGFloat {
+        switch self {
+        case .small:    return 0.92
+        case .standard: return 1
+        case .large:    return 1.12
+        }
+    }
+}
+
+enum NotificationKind: String, CaseIterable, Identifiable {
+    case newPR, review, ci, conflicts, mergeFlow
+    var id: String { rawValue }
+    var key: String { "notify.\(rawValue)" }
+    var title: String {
+        switch self {
+        case .newPR:     return "New pull requests"
+        case .review:    return "Approvals and change requests"
+        case .ci:        return "CI results"
+        case .conflicts: return "Merge conflicts"
+        case .mergeFlow: return "Merge queue and auto-merge"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .newPR:     return "A pull request appears in your scope."
+        case .review:    return "A PR is approved, or changes are requested."
+        case .ci:        return "Checks start failing, or turn green again."
+        case .conflicts: return "A PR starts conflicting with its base branch."
+        case .mergeFlow: return "A PR leaves the merge queue or loses auto-merge without merging."
+        }
+    }
+}
+
+/// Sections of the Settings dialog; other parts of the app can open it on one.
+enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
+    case general, appearance, github, pullRequests, notifications, shortcuts, about
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .general:       return "General"
+        case .appearance:    return "Appearance"
+        case .github:        return "GitHub"
+        case .pullRequests:  return "Pull requests"
+        case .notifications: return "Notifications"
+        case .shortcuts:     return "Shortcuts"
+        case .about:         return "About"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .general:       return "gearshape"
+        case .appearance:    return "circle.hexagongrid"
+        case .github:        return "lock.shield"
+        case .pullRequests:  return "arrow.triangle.pull"
+        case .notifications: return "bell"
+        case .shortcuts:     return "command"
+        case .about:         return "info.circle"
+        }
     }
 }

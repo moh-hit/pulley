@@ -25,6 +25,8 @@ struct ContentView: View {
     @State private var scope: Scope = Config.scope
     @State private var groupBy: GroupBy = Config.groupBy
     @State private var showSettings: Bool = false
+    @AppStorage(TextSize.key) private var textSizeRaw = TextSize.standard.rawValue
+    @AppStorage(ListDensity.key) private var densityRaw = ListDensity.comfortable.rawValue
     @State private var collapsed: Set<String> = []
     @State private var selectedPRID: String? = nil
     @State private var expandedPRs: Set<String> = []
@@ -98,16 +100,8 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if showSettings {
-                // Render in place of the main UI rather than as a SwiftUI sheet.
-                // Sheets inside NSPopover strand their modal session when the
-                // popover dismisses, freezing input on reopen — swapping content
-                // sidesteps that interaction entirely.
-                SettingsView(onClose: {
-                    showSettings = false
-                    scope = Config.scope        // pick up scope change if user edited it
-                })
-                .environmentObject(store)
+            if !store.isMockData && (!Config.hasToken || Config.orgs.isEmpty) {
+                SetupPrompt()
             } else {
                 VStack(spacing: 0) {
                     HeaderView(showSettings: $showSettings)
@@ -143,15 +137,13 @@ struct ContentView: View {
                 }
             }
         }
+        .id("\(textSizeRaw)-\(densityRaw)")
         .frame(width: 460, height: 520)
         .onAppear {
             scope   = Config.scope
             groupBy = Config.groupBy
             // Use hasToken (UserDefaults) so checking "is the app configured?"
             // doesn't trigger a Keychain prompt before the user does anything.
-            if !store.isMockData && (!Config.hasToken || Config.orgs.isEmpty) {
-                showSettings = true
-            }
         }
         // Keyboard navigation — driven by NSEvent monitor in AppDelegate.
         .onReceive(NotificationCenter.default.publisher(for: .pulleyMoveSelection)) { note in
@@ -179,8 +171,11 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .pulleyFocusSearch)) { _ in
             searchFocused = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .pulleyOpenSettings)) { _ in
-            showSettings = true
+        // Settings opens in the main window; the gear and banners flip this.
+        .onChange(of: showSettings) { show in
+            guard show else { return }
+            showSettings = false
+            NotificationCenter.default.post(name: .pulleyOpenSettings, object: nil)
         }
     }
 
@@ -640,7 +635,7 @@ private struct PRRow: View {
             }
         }
         .padding(.horizontal, 11)
-        .padding(.vertical, 9)
+        .padding(.vertical, Config.listDensity.rowPadding - 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
         .contentShape(Rectangle())
@@ -869,5 +864,28 @@ private func statusLabel(_ s: PRStatus) -> String {
     case .approved: return "Approved"
     case .review:   return "In review"
     case .open:     return "Open"
+    }
+}
+
+/// First run in the popover: one sentence and one button, which opens
+/// Settings on the GitHub section in the main window.
+private struct SetupPrompt: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("Pulley")
+                .font(Theme.display(30))
+            Text("Connect GitHub to see the pull requests that need you.")
+                .font(Theme.ui(13))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Connect GitHub") {
+                NotificationCenter.default.post(name: .pulleyOpenSettings, object: SettingsSection.github)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

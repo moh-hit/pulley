@@ -42,6 +42,33 @@ to settings shape or filesystem layout.
   pending checks, a neutral wordmark, and a red (not orange) sync-error
   banner.
 
+### Added (settings)
+- **New Settings.** A dialog with its own sidebar — General, Appearance,
+  GitHub, Pull requests, Notifications, Shortcuts, About — and grouped
+  rows that say what each option does. Changes apply immediately; only the
+  GitHub token and organizations wait for **Save changes**. The popover's
+  gear, ⌘, and the menu-bar menu all open it in the main window, and a fresh
+  install's popover shows a one-button "Connect GitHub" prompt instead of
+  a form.
+- **Appearance:** light, dark or follow the system; text size (small,
+  default, large — scales text, icons and the sidebar); list density
+  (comfortable or compact); show or hide the contribution graph; collapse
+  bot comments or not.
+- **General:** start page (Home, All pull requests or Changes requested),
+  sync interval (5 minutes to an hour — it was fixed at 30), and what the
+  menu-bar number counts (not yet approved, only what needs you, or
+  nothing).
+- **Test connection** checks the token before you save it and says who it
+  belongs to; for classic tokens it lists missing scopes (the Inbox needs
+  `notifications`), and it explains that fine-grained tokens can't use the
+  Inbox.
+- **Notifications:** turn each kind on or off — new PRs, reviews, CI,
+  conflicts, merge queue and auto-merge.
+- **Pull requests:** default merge method (stored before, but had no
+  setting), Copilot review, editor, and the workspace folder — which now
+  warns when it doesn't exist (the old `./` default never did).
+- **Shortcuts:** the global hotkey plus a reference of every in-window key.
+
 ### Added (window hardening)
 - **Contribution graph on Home.** Your GitHub contribution calendar in a
   right-hand column: the last 20 weeks (the whole year when there's room)

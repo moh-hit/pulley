@@ -92,6 +92,9 @@ func relativeTime(_ date: Date) -> String {
 /// Main-window surfaces: a warm neutral "chrome" behind the sidebar, with
 /// content on a raised panel. Adaptive so dark mode keeps the same shape.
 enum Theme {
+    /// Text-size preference applied to every Theme font and Icon. Set at
+    /// launch and by Settings; root views re-render on change via @AppStorage.
+    static var scale: CGFloat = Config.textSize.scale
     static let chrome = adaptive(
         light: NSColor(srgbRed: 0.953, green: 0.949, blue: 0.937, alpha: 1),
         dark: NSColor(srgbRed: 0.106, green: 0.102, blue: 0.098, alpha: 1)
@@ -107,17 +110,20 @@ enum Theme {
     /// Instrument Serif — greetings, section titles and big numbers.
     /// Display only: it has a single weight, so `weight` is ignored.
     static func display(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        BundledFonts.font("InstrumentSerif-Regular", size: size, fallback: .system(size: size, design: .serif))
+        let size = size * scale
+        return BundledFonts.font("InstrumentSerif-Regular", size: size, fallback: .system(size: size, design: .serif))
     }
 
     /// Geist — all interface text.
     static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        BundledFonts.font("Geist-\(BundledFonts.instance(weight))", size: size, fallback: .system(size: size, weight: weight))
+        let size = size * scale
+        return BundledFonts.font("Geist-\(BundledFonts.instance(weight))", size: size, fallback: .system(size: size, weight: weight))
     }
 
     /// Geist Mono — branches, PR numbers, SHAs, timestamps and diffs.
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        BundledFonts.font("GeistMono-\(BundledFonts.instance(weight))", size: size, fallback: .system(size: size, weight: weight, design: .monospaced))
+        let size = size * scale
+        return BundledFonts.font("GeistMono-\(BundledFonts.instance(weight))", size: size, fallback: .system(size: size, weight: weight, design: .monospaced))
     }
 
     /// GitHub's contribution greens, 0 (none) … 4 (most), light and dark.

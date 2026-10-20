@@ -2634,7 +2634,7 @@ private struct PostedCommentRow: View {
     let isReply: Bool
 
     /// Bot comments (Copilot, CodeRabbit, …) start as a one-line summary.
-    @State private var botExpanded = false
+    @State private var botExpanded = !Config.collapseBotComments
 
     private var indent: CGFloat { isReply ? 22 : 0 }
     private var collapsed: Bool { comment.isBot && !botExpanded }

@@ -28,7 +28,7 @@ struct HomePane: View {
                 if prs.isEmpty {
                     emptyState
                 } else {
-                    if let contributions = store.contributions {
+                    if let contributions = store.contributions, Config.showContributions {
                         // Cards and feed on the left, the contribution graph in
                         // the right column; stacked when the window is narrow.
                         ViewThatFits(in: .horizontal) {

@@ -98,6 +98,7 @@ final class NotificationsManager: NSObject {
             // 1) New PR landed in the user's scope.
             if oldStatus == nil {
                 post(
+                    .newPR,
                     title: "New PR · \(pr.repo)",
                     body:  pr.title,
                     pr: pr
@@ -109,9 +110,9 @@ final class NotificationsManager: NSObject {
             if oldStatus != newStatus {
                 switch pr.status {
                 case .approved:
-                    post(title: "Approved · \(pr.repo)", body: pr.title, pr: pr)
+                    post(.review, title: "Approved · \(pr.repo)", body: pr.title, pr: pr)
                 case .changes:
-                    post(title: "Changes requested · \(pr.repo)", body: pr.title, pr: pr)
+                    post(.review, title: "Changes requested · \(pr.repo)", body: pr.title, pr: pr)
                 default:
                     break   // open/review transitions are too noisy
                 }
@@ -120,10 +121,10 @@ final class NotificationsManager: NSObject {
             // 3) CI flip.
             if oldCheckStatus != newCheckStatus {
                 if pr.checkStatus == .failure {
-                    post(title: "CI failing · \(pr.repo)", body: pr.title, pr: pr)
+                    post(.ci, title: "CI failing · \(pr.repo)", body: pr.title, pr: pr)
                 } else if pr.checkStatus == .success, oldCheckStatus == CheckStatus.failure.rawValue
                                                       || oldCheckStatus == CheckStatus.pending.rawValue {
-                    post(title: "CI green · \(pr.repo)", body: pr.title, pr: pr)
+                    post(.ci, title: "CI green · \(pr.repo)", body: pr.title, pr: pr)
                 }
             }
 
@@ -138,7 +139,7 @@ final class NotificationsManager: NSObject {
                oldMergeable != MergeableState.unknown.rawValue,
                newMergeable != MergeableState.unknown.rawValue {
                 if pr.mergeableState == .dirty {
-                    post(title: "Conflicts · \(pr.repo)", body: pr.title, pr: pr)
+                    post(.conflicts, title: "Conflicts · \(pr.repo)", body: pr.title, pr: pr)
                 }
             }
 
@@ -149,16 +150,18 @@ final class NotificationsManager: NSObject {
             if !skipMergeFlow.contains(pr.id) {
                 let isQueued = pr.merge?.queueEntry != nil
                 if old.queued?.contains(pr.id) == true, !isQueued {
-                    post(title: "Removed from merge queue · \(pr.repo)", body: pr.title, pr: pr)
+                    post(.mergeFlow, title: "Removed from merge queue · \(pr.repo)", body: pr.title, pr: pr)
                 } else if old.autoMerge?.contains(pr.id) == true,
                           pr.merge?.autoMerge == nil, !isQueued {
-                    post(title: "Auto-merge disabled · \(pr.repo)", body: pr.title, pr: pr)
+                    post(.mergeFlow, title: "Auto-merge disabled · \(pr.repo)", body: pr.title, pr: pr)
                 }
             }
         }
     }
 
-    private func post(title: String, body: String, pr: PR) {
+    private func post(_ kind: NotificationKind, title: String, body: String, pr: PR) {
+        // Each kind can be switched off in Settings → Notifications.
+        guard Config.notifies(kind) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body  = body

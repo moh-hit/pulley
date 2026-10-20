@@ -47,10 +47,16 @@ enum SidebarFilter: Hashable, Identifiable {
 
 struct MainWindowView: View {
     @EnvironmentObject var store: Store
-    @State private var section: MainSection = .home
+    @State private var section: MainSection = Config.startPage.section
     @State private var selectedPRID: String? = nil
     @State private var query: String = ""
     @State private var showSettings: Bool = false
+    @State private var settingsSection: SettingsSection? = nil
+    // Preferences that change how everything renders; the content is rebuilt
+    // when one changes so Theme fonts and row padding pick it up.
+    @AppStorage(TextSize.key) private var textSizeRaw = TextSize.standard.rawValue
+    @AppStorage(ListDensity.key) private var densityRaw = ListDensity.comfortable.rawValue
+    @AppStorage("ui.showContributions") private var showContributionsPref = true
     /// Sidebar collapsed to the icon rail — the user's choice, remembered.
     @AppStorage("ui.sidebarCollapsed") private var userCollapsed = false
     @State private var groupMode: ListGroupMode = .none
@@ -125,15 +131,22 @@ struct MainWindowView: View {
                 .padding(.bottom, 10)
                 .padding(.trailing, 10)
             }
+            .id("\(textSizeRaw)-\(densityRaw)-\(showContributionsPref)")
         }
         .background(Theme.chrome)
         .background(KeyCommands { handle($0) })
         .ignoresSafeArea()
-        .sheet(isPresented: $showSettings) {
-            SettingsView(onClose: { showSettings = false })
+        .sheet(isPresented: $showSettings, onDismiss: { settingsSection = nil }) {
+            SettingsView(initialSection: settingsSection, onClose: { showSettings = false })
                 .environmentObject(store)
                 // Leave room for the title bar in short windows.
-                .frame(width: 560, height: min(640, max(380, height - 70)))
+                .frame(width: 780, height: min(600, max(420, height - 70)))
+        }
+        .onReceive(store.$settingsRequest) { request in
+            guard let request else { return }
+            settingsSection = request
+            showSettings = true
+            store.settingsRequest = nil
         }
         .onChange(of: section) { _ in
             query = ""

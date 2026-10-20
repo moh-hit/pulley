@@ -22,6 +22,9 @@ extension Notification.Name {
     static let pulleySelectPR              = Notification.Name("PulleySelectPR")
     /// Posted from popover to ask the AppDelegate to open the main window.
     static let pulleyOpenMainWindow        = Notification.Name("PulleyOpenMainWindow")
+    /// Posted by Settings when a preference that AppKit-side UI reads changes
+    /// (the menu-bar count).
+    static let pulleyPreferencesChanged    = Notification.Name("PulleyPreferencesChanged")
 
     /// Posted by Settings when the global hotkey was edited.
     static let pulleyHotkeyChanged   = Notification.Name("PulleyHotkeyChanged")
@@ -43,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         BundledFonts.register()
+        Config.appearance.apply()
         installEditMenu()
 
         store = Store()
@@ -92,6 +96,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateBadge() }
             .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: .pulleyPreferencesChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateBadge() }
+            .store(in: &cancellables)
 
         // Global hotkey — fire toggle from anywhere. Re-registered when the
         // user changes the binding in Settings.
@@ -131,6 +139,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.openMainWindow() }
         }
 
+        // Settings lives in the main window (it needs the room); every entry
+        // point — popover gear, ⌘, in the popover, the peek menu — lands here.
+        NotificationCenter.default.addObserver(
+            forName: .pulleyOpenSettings, object: nil, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.store.settingsRequest = (note.object as? SettingsSection)
+                    ?? (Config.hasToken ? .general : .github)
+                self.openMainWindow()
+            }
+        }
+
         NotificationCenter.default.addObserver(
             forName: .pulleyPauseDismissal, object: nil, queue: .main
         ) { [weak self] _ in
@@ -157,7 +178,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateBadge() {
         guard let button = statusItem.button else { return }
         let n = store.openCount
-        let title = n > 0 ? " \(n)" : ""
+        let shown: Int
+        switch Config.menuBarCount {
+        case .open:      shown = n
+        case .attention: shown = store.prs.filter { $0.status == .changes || $0.checkStatus == .failure }.count
+        case .hidden:    shown = 0
+        }
+        let title = shown > 0 ? " \(shown)" : ""
         // Always use an attributed title so the count can flip red when
         // something needs attention (changes-requested or failing CI).
         let color: NSColor = store.needsAttention ? .systemRed : .labelColor
