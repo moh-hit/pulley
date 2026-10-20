@@ -38,6 +38,10 @@ struct ContentView: View {
         }
     }
 
+    private var hasMultipleOrganizations: Bool {
+        Set(store.prs.map(\.org)).count > 1
+    }
+
     private var sections: [Section] {
         switch groupBy {
         case .status:
@@ -64,11 +68,11 @@ struct ContentView: View {
                 }
                 guard !list.isEmpty, let first = list.first else { return nil }
                 // Show plain repo name when only one org configured.
-                let title = Config.orgs.count > 1 ? key : first.repo
+                let title = hasMultipleOrganizations ? key : first.repo
                 return Section(
                     id: "repo:\(key)",
                     title: title,
-                    accent: colorForRepo(first.repo),
+                    accent: Color.secondary.opacity(0.65),
                     prs: list
                 )
             }
@@ -85,7 +89,7 @@ struct ContentView: View {
                 return Section(
                     id: "org:\(org)",
                     title: org,
-                    accent: colorForRepo(org),
+                    accent: Color.secondary.opacity(0.65),
                     prs: list
                 )
             }
@@ -107,11 +111,15 @@ struct ContentView: View {
             } else {
                 VStack(spacing: 0) {
                     HeaderView(showSettings: $showSettings)
+                    if let error = store.lastError {
+                        SyncErrorBanner(message: error) { store.sync() }
+                    }
                     Divider()
                     FilterRow(
                         query: $query,
                         scope: $scope,
                         groupBy: $groupBy,
+                        hasMultipleOrganizations: hasMultipleOrganizations,
                         searchFocused: $searchFocused,
                         onScopeChange:   { Config.scope   = scope;   store.sync() },
                         onGroupByChange: { Config.groupBy = groupBy }
@@ -122,6 +130,7 @@ struct ContentView: View {
                     ListBody(
                         sections: sections,
                         groupBy: groupBy,
+                        hasMultipleOrganizations: hasMultipleOrganizations,
                         collapsed: $collapsed,
                         hasAnyPRs: !store.prs.isEmpty,
                         selectedPRID: $selectedPRID,
@@ -136,7 +145,7 @@ struct ContentView: View {
             groupBy = Config.groupBy
             // Use hasToken (UserDefaults) so checking "is the app configured?"
             // doesn't trigger a Keychain prompt before the user does anything.
-            if !Config.hasToken || Config.orgs.isEmpty {
+            if !store.isMockData && (!Config.hasToken || Config.orgs.isEmpty) {
                 showSettings = true
             }
         }
@@ -158,11 +167,10 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .pulleyToggleSelectedExpand)) { _ in
             guard let id = selectedPRID,
-                  let pr = orderedPRs.first(where: { $0.id == id }),
-                  !pr.checks.isEmpty
+                  orderedPRs.contains(where: { $0.id == id })
             else { return }
             if expandedPRs.contains(id) { expandedPRs.remove(id) }
-            else                         { expandedPRs.insert(id) }
+            else                         { expandedPRs = [id] }
         }
         .onReceive(NotificationCenter.default.publisher(for: .pulleyFocusSearch)) { _ in
             searchFocused = true
@@ -200,10 +208,6 @@ private struct HeaderView: View {
     @EnvironmentObject var store: Store
     @Binding var showSettings: Bool
 
-    private var totalOpen: Int {
-        store.prs.filter { $0.status != .approved }.count
-    }
-
     var body: some View {
         HStack(spacing: 8) {
             Text("PULLEY")
@@ -213,22 +217,32 @@ private struct HeaderView: View {
 
             if !store.prs.isEmpty {
                 Text("·").foregroundColor(.secondary)
-                Text("\(totalOpen) open")
+                Text("\(store.prs.count) PR\(store.prs.count == 1 ? "" : "s")")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.secondary)
             }
 
+            if store.isMockData {
+                Text("PREVIEW")
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.secondary.opacity(0.8))
+            }
+
             Spacer()
 
-            if let err = store.lastError {
-                Text(truncate(err, 28))
+            if store.syncing {
+                Text("Syncing…")
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.red)
-                    .help(err)
+                    .foregroundColor(.secondary)
             } else if let t = store.lastSync {
-                (Text("✓ ").foregroundColor(.green)
-                 + Text(t.formatted(.dateTime.hour().minute())).foregroundColor(.secondary))
-                    .font(.system(size: 10, design: .monospaced))
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(t.formatted(.dateTime.hour().minute()))
+                }
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.secondary)
             }
 
             Button(action: { store.sync() }) {
@@ -242,32 +256,56 @@ private struct HeaderView: View {
             .disabled(store.syncing)
             .help("Sync now")
 
-            Button(action: {
-                NotificationCenter.default.post(name: .pulleyOpenMainWindow, object: nil)
-            }) {
-                Image(systemName: "macwindow")
-            }
-            .buttonStyle(.borderless)
-            .help("Open window (⌘O)")
+            Menu {
+                Button {
+                    NotificationCenter.default.post(name: .pulleyOpenMainWindow, object: nil)
+                } label: {
+                    Label("Open main window", systemImage: "macwindow")
+                }
 
-            Button(action: { showSettings = true }) {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.borderless)
-            .help("Settings")
+                Button { showSettings = true } label: {
+                    Label("Settings…", systemImage: "gearshape")
+                }
 
-            Button(action: { NSApp.terminate(nil) }) {
-                Image(systemName: "power")
+                Divider()
+
+                Button { NSApp.terminate(nil) } label: {
+                    Label("Quit Pulley", systemImage: "power")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
             }
-            .buttonStyle(.borderless)
-            .help("Quit Pulley")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More options")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+}
+
+private struct SyncErrorBanner: View {
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.orange)
+            Text("Couldn't refresh pull requests")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.primary)
+            Spacer(minLength: 8)
+            Button("Retry", action: retry)
+                .buttonStyle(.borderless)
+                .font(.system(size: 11, weight: .semibold))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-    }
-
-    private func truncate(_ s: String, _ n: Int) -> String {
-        s.count <= n ? s : String(s.prefix(n)) + "…"
+        .background(Color.orange.opacity(0.09))
+        .help(message)
     }
 }
 
@@ -277,40 +315,91 @@ private struct FilterRow: View {
     @Binding var query: String
     @Binding var scope: Scope
     @Binding var groupBy: GroupBy
+    let hasMultipleOrganizations: Bool
     var searchFocused: FocusState<Bool>.Binding
     let onScopeChange: () -> Void
     let onGroupByChange: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            TextField("Search…", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-                .focused(searchFocused)
-
-            Picker("", selection: $groupBy) {
-                Text("Status").tag(GroupBy.status)
-                Text("Repo").tag(GroupBy.repo)
-                if Config.orgs.count > 1 {
-                    Text("Org").tag(GroupBy.org)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.75))
+                TextField("Find pull requests", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .focused(searchFocused)
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.75))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear search")
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: Config.orgs.count > 1 ? 150 : 110)
-            .help("Group PRs")
-            .onChange(of: groupBy) { _ in onGroupByChange() }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.primary.opacity(0.09), lineWidth: 0.5)
+            )
 
-            Picker("", selection: $scope) {
-                ForEach(Scope.allCases) { s in
-                    Text(s.label).tag(s)
+            Menu {
+                SwiftUI.Section("Group by") {
+                    ForEach(availableGroups) { option in
+                        Button {
+                            groupBy = option
+                            onGroupByChange()
+                        } label: {
+                            Label(option.menuLabel, systemImage: groupBy == option ? "checkmark" : option.icon)
+                        }
+                    }
                 }
+
+                SwiftUI.Section("Pull requests") {
+                    ForEach(Scope.allCases) { option in
+                        Button {
+                            scope = option
+                            onScopeChange()
+                        } label: {
+                            Label(option.label, systemImage: scope == option ? "checkmark" : "person.crop.circle")
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: groupBy.icon)
+                        .font(.system(size: 10, weight: .medium))
+                    Text(groupBy.menuLabel)
+                        .font(.system(size: 11, weight: .medium))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
             }
-            .labelsHidden()
-            .frame(width: 140)
-            .controlSize(.small)
-            .onChange(of: scope) { _ in onScopeChange() }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("View and scope options")
         }
+    }
+
+    private var availableGroups: [GroupBy] {
+        hasMultipleOrganizations ? [.status, .repo, .org] : [.status, .repo]
     }
 }
 
@@ -319,6 +408,7 @@ private struct FilterRow: View {
 private struct ListBody: View {
     let sections: [Section]
     let groupBy: GroupBy
+    let hasMultipleOrganizations: Bool
     @Binding var collapsed: Set<String>
     let hasAnyPRs: Bool
     @Binding var selectedPRID: String?
@@ -336,8 +426,9 @@ private struct ListBody: View {
                         ForEach(sections) { section in
                             SectionView(
                                 section: section,
-                                showRepoChip: groupBy == .status,
-                                showStatus:   groupBy == .repo,
+                                showRepoChip: groupBy != .repo,
+                                showStatus:   groupBy != .status,
+                                showOrgPrefix: hasMultipleOrganizations,
                                 isCollapsed:  collapsed.contains(section.id),
                                 onToggle:     { toggle(section.id) },
                                 selectedPRID: $selectedPRID,
@@ -348,6 +439,7 @@ private struct ListBody: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .onChange(of: selectedPRID) { id in
                     guard let id else { return }
@@ -383,6 +475,7 @@ private struct SectionView: View {
     let section: Section
     let showRepoChip: Bool
     let showStatus: Bool
+    let showOrgPrefix: Bool
     let isCollapsed: Bool
     let onToggle: () -> Void
     @Binding var selectedPRID: String?
@@ -393,7 +486,7 @@ private struct SectionView: View {
             Button(action: onToggle) {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(section.accent)
+                        .fill(section.accent.opacity(0.85))
                         .frame(width: 7, height: 7)
                     Text(section.title)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -409,9 +502,11 @@ private struct SectionView: View {
                 }
                 .padding(.vertical, 5)
                 .padding(.horizontal, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if !isCollapsed {
                 VStack(spacing: 0) {
@@ -420,12 +515,17 @@ private struct SectionView: View {
                             pr: pr,
                             showRepo: showRepoChip,
                             showStatus: showStatus,
+                            showOrgPrefix: showOrgPrefix,
                             isSelected: selectedPRID == pr.id,
                             isExpanded: Binding(
                                 get: { expandedPRs.contains(pr.id) },
                                 set: { on in
-                                    if on { expandedPRs.insert(pr.id) }
-                                    else  { expandedPRs.remove(pr.id) }
+                                    if on {
+                                        expandedPRs = [pr.id]
+                                        selectedPRID = pr.id
+                                    } else {
+                                        expandedPRs.remove(pr.id)
+                                    }
                                 }
                             ),
                             onSelect: { selectedPRID = pr.id }
@@ -436,8 +536,10 @@ private struct SectionView: View {
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -447,62 +549,94 @@ private struct PRRow: View {
     let pr: PR
     let showRepo: Bool
     let showStatus: Bool
+    let showOrgPrefix: Bool
     let isSelected: Bool
     @Binding var isExpanded: Bool
     let onSelect: () -> Void
     @State private var hovered = false
-    @State private var copied = false
+    @State private var copiedLink = false
+    @State private var copiedBranch = false
     @State private var checkingOut = false
 
     private var hasChecks: Bool { !pr.checks.isEmpty }
-
-    /// Show row actions only when user is engaging with this row.
-    /// Cuts visual noise on the long list while keeping ops one hover away.
-    private var actionsVisible: Bool { hovered || isSelected || checkingOut }
+    private var quickActionsVisible: Bool {
+        hovered || isSelected || copiedLink || copiedBranch
+    }
+    private var disclosureVisible: Bool { hovered || isSelected || isExpanded }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            // Line 1: title + actions. Actions always occupy space so the
-            // title doesn't re-truncate on hover.
-            HStack(spacing: 8) {
-                Text(pr.title)
-                    .font(.system(size: 13))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundColor(.primary)
-                    .help(pr.title)
+        VStack(alignment: .leading, spacing: 6) {
+            // The collapsed row is deliberately for scanning: title, age,
+            // grouping context, and exceptional conditions only.
+            HStack(spacing: 6) {
+                Button {
+                    onSelect()
+                    withAnimation(.easeOut(duration: 0.14)) { isExpanded.toggle() }
+                } label: {
+                    Text(pr.title)
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .help(pr.title)
+                }
+                .buttonStyle(.plain)
 
-                Spacer(minLength: 8)
-
-                HStack(spacing: 0) {
-                    ActionIcon(
-                        icon: "arrow.up.right.square",
-                        help: "Open PR in browser"
+                HStack(spacing: 1) {
+                    QuickCopyButton(
+                        icon: copiedLink ? "checkmark" : "link",
+                        copied: copiedLink,
+                        help: copiedLink ? "PR link copied" : "Copy PR link"
                     ) {
-                        PRActions.openInBrowser(pr.url)
+                        onSelect()
+                        PRActions.copyToPasteboard(pr.url.absoluteString)
+                        copiedLink = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copiedLink = false }
                     }
 
-                    if checkingOut {
-                        ProgressView()
-                            .controlSize(.small)
-                            .scaleEffect(0.6)
-                            .frame(width: 22, height: 20)
-                            .help("Setting up worktree…")
-                    } else {
-                        ActionIcon(
-                            icon: "chevron.left.forwardslash.chevron.right",
-                            help: "Checkout & open in \(Config.preferredIDE.displayName)"
+                    if !pr.branch.isEmpty {
+                        QuickCopyButton(
+                            icon: copiedBranch ? "checkmark" : "doc.on.doc",
+                            copied: copiedBranch,
+                            help: copiedBranch ? "Branch copied" : "Copy branch"
                         ) {
-                            checkingOut = true
-                            PRActions.checkoutAndOpen(pr: pr) { checkingOut = false }
+                            onSelect()
+                            PRActions.copyToPasteboard(pr.branch)
+                            copiedBranch = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copiedBranch = false }
                         }
                     }
                 }
-                .opacity(actionsVisible ? 1 : 0)
-                .allowsHitTesting(actionsVisible)
+                .opacity(quickActionsVisible ? 1 : 0)
+                .allowsHitTesting(quickActionsVisible)
+                .animation(.easeOut(duration: 0.1), value: quickActionsVisible)
+
+                Text(relativeTime(pr.updatedAt))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+
+                Button {
+                    onSelect()
+                    withAnimation(.easeOut(duration: 0.14)) { isExpanded.toggle() }
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .frame(width: 16, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(isExpanded ? "Collapse PR" : "Show PR actions")
+                .opacity(disclosureVisible ? 1 : 0)
+                .allowsHitTesting(disclosureVisible)
+                .animation(.easeOut(duration: 0.1), value: disclosureVisible)
             }
 
-            // Line 2: meta
+            // Conditions stay visible because they determine what needs
+            // attention. Branch and actions move into the selected state.
             HStack(spacing: 8) {
                 if hasChecks {
                     CheckStatusDot(
@@ -510,38 +644,23 @@ private struct PRRow: View {
                         count: pr.checks.count,
                         expanded: isExpanded
                     ) {
+                        onSelect()
                         withAnimation(.easeInOut(duration: 0.12)) { isExpanded.toggle() }
                     }
                 }
 
-                if pr.mergeableState.isActionable {
+                if pr.mergeableState.isActionable && pr.mergeableState != .unstable {
                     MergeableChip(state: pr.mergeableState)
                 }
 
                 if showRepo {
                     RepoChip(
                         repo: pr.repo,
-                        orgPrefix: Config.orgs.count > 1 ? pr.org : nil
+                        orgPrefix: showOrgPrefix ? pr.org : nil
                     )
                 }
                 if showStatus {
                     StatusInline(status: pr.status)
-                }
-
-                if !pr.branch.isEmpty {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 9))
-                        Text(pr.branch)
-                            .font(.system(size: 10, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(pr.branch)
-                        InlineCopyButton(text: pr.branch, copied: $copied)
-                            .opacity(actionsVisible ? 1 : 0)
-                            .allowsHitTesting(actionsVisible)
-                    }
-                    .foregroundColor(.secondary)
                 }
 
                 if pr.isDraft {
@@ -549,21 +668,11 @@ private struct PRRow: View {
                         .help("Draft PR")
                 }
 
-                Spacer(minLength: 8)
-
-                Text(relativeTime(pr.updatedAt))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .help("Updated \(pr.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                Text("#\(pr.number)")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.55))
-                    .help("PR #\(pr.number)")
+                Spacer(minLength: 0)
             }
 
-            if isExpanded && hasChecks {
-                ChecksList(checks: pr.checks)
-                    .padding(.top, 4)
+            if isExpanded {
+                expandedContent
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -573,21 +682,128 @@ private struct PRRow: View {
         .background(rowBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 4)
-                .stroke(Color.accentColor, lineWidth: isSelected ? 1.2 : 0)
+                .stroke(
+                    isSelected ? Color.accentColor.opacity(0.65) : Color.clear,
+                    lineWidth: 1
+                )
                 .padding(.horizontal, 4)
         )
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .onTapGesture {
-            onSelect()
-            PRActions.openInBrowser(pr.url)
+    }
+
+    private var expandedContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().opacity(0.55)
+
+            HStack(spacing: 6) {
+                if !pr.branch.isEmpty {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 9))
+                    Text(pr.branch)
+                        .font(.system(size: 10, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(pr.branch)
+                }
+                Spacer(minLength: 6)
+                Text("#\(pr.number)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .foregroundColor(.secondary)
+
+            HStack(spacing: 5) {
+                RowActionButton(title: "Open PR", icon: "arrow.up.right.square") {
+                    PRActions.openInBrowser(pr.url)
+                }
+
+                if checkingOut {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.small)
+                        Text("Preparing…")
+                    }
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    RowActionButton(
+                        title: Config.preferredIDE.displayName,
+                        icon: "chevron.left.forwardslash.chevron.right"
+                    ) {
+                        checkingOut = true
+                        // Button actions run on the main thread, but Swift 5.10
+                        // doesn't infer that for a helper property like this.
+                        MainActor.assumeIsolated {
+                            PRActions.checkoutAndOpen(pr: pr) { checkingOut = false }
+                        }
+                    }
+                }
+            }
+
+            if hasChecks {
+                ChecksList(checks: pr.checks)
+            }
         }
+        .padding(.top, 2)
     }
 
     private var rowBackground: Color {
-        if isSelected { return Color.accentColor.opacity(0.10) }
+        if isSelected { return Color.accentColor.opacity(0.07) }
         if hovered    { return Color.primary.opacity(0.04) }
         return Color.clear
+    }
+}
+
+private struct QuickCopyButton: View {
+    let icon: String
+    let copied: Bool
+    let help: String
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(copied ? .green : .secondary.opacity(hovered ? 1 : 0.75))
+                .frame(width: 20, height: 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.primary.opacity(hovered ? 0.09 : 0.045))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help(help)
+    }
+}
+
+private struct RowActionButton: View {
+    let title: String
+    let icon: String
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.primary.opacity(hovered ? 0.09 : 0.055))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }
 
@@ -616,10 +832,10 @@ private struct CheckStatusDot: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(
-                Capsule().fill(color.opacity(hovered ? 0.18 : 0.12))
+                Capsule().fill(color.opacity(hovered ? 0.12 : 0.08))
             )
             .overlay(
-                Capsule().stroke(color.opacity(0.3), lineWidth: 0.5)
+                Capsule().stroke(color.opacity(0.18), lineWidth: 0.5)
             )
             .contentShape(Rectangle())
         }
@@ -629,7 +845,7 @@ private struct CheckStatusDot: View {
     }
 
     private var glyph: String { checkGlyph(status) }
-    private var color: Color  { checkColor(status) }
+    private var color: Color  { popoverCheckColor(status) }
 }
 
 private struct ChecksList: View {
@@ -697,61 +913,7 @@ private struct CheckRow: View {
     }
 
     private var glyph: String { checkGlyph(check.rolled) }
-    private var color: Color  { checkColor(check.rolled) }
-}
-
-// Tiny inline copy affordance — sized to sit next to the monospaced branch text.
-private struct InlineCopyButton: View {
-    let text: String
-    @Binding var copied: Bool
-    @State private var hovered = false
-
-    var body: some View {
-        Button {
-            PRActions.copyToPasteboard(text)
-            copied = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { copied = false }
-        } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundColor(copied ? .green : .secondary.opacity(hovered ? 1 : 0.65))
-                .padding(.horizontal, 3)
-                .padding(.vertical, 1)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .help(copied ? "Copied" : "Copy branch")
-    }
-}
-
-// Small icon button used for the per-PR action row.
-private struct ActionIcon: View {
-    let icon: String
-    var tint: Color? = nil
-    let help: String
-    let action: () -> Void
-    @State private var hovered = false
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
-                .frame(width: 22, height: 20)
-                .foregroundColor(
-                    tint ?? (hovered ? .primary : .secondary.opacity(isEnabled ? 0.75 : 0.35))
-                )
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(hovered && isEnabled ? Color.primary.opacity(0.08) : Color.clear)
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .help(help)
-    }
+    private var color: Color  { popoverCheckColor(check.rolled) }
 }
 
 // MARK: - Chips
@@ -764,9 +926,9 @@ private struct RepoChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Circle()
-                .fill(colorForRepo(repo))
-                .frame(width: 6, height: 6)
+            Image(systemName: "folder")
+                .font(.system(size: 8, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.75))
             Group {
                 if let orgPrefix {
                     (Text(orgPrefix + "/").foregroundColor(.primary.opacity(0.45))
@@ -786,11 +948,11 @@ private struct RepoChip: View {
         .padding(.vertical, 2)
         .background(
             Capsule()
-                .fill(colorForRepo(repo).opacity(0.12))
+                .fill(Color.primary.opacity(0.055))
         )
         .overlay(
             Capsule()
-                .stroke(colorForRepo(repo).opacity(0.25), lineWidth: 0.5)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
         )
         .fixedSize()
         .help(orgPrefix.map { "Repo: \($0)/\(repo)" } ?? "Repo: \(repo)")
@@ -803,11 +965,11 @@ private struct StatusInline: View {
     var body: some View {
         Text(statusLabel(status).lowercased())
             .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundColor(statusColor(status))
+            .foregroundColor(statusColor(status).opacity(0.88))
             .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Capsule().fill(statusColor(status).opacity(0.13)))
+            .background(Capsule().fill(statusColor(status).opacity(0.09)))
             .fixedSize()
             .help(statusLabel(status))
     }
@@ -827,14 +989,20 @@ private struct MergeableChip: View {
         .foregroundColor(color)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(Capsule().fill(color.opacity(0.13)))
-        .overlay(Capsule().stroke(color.opacity(0.3), lineWidth: 0.5))
+        .background(Capsule().fill(color.opacity(0.09)))
+        .overlay(Capsule().stroke(color.opacity(0.20), lineWidth: 0.5))
         .fixedSize()
         .help(helpText)
     }
 
     private var glyph: String { mergeableGlyph(state) }
-    private var color: Color  { mergeableColor(state) }
+    private var color: Color {
+        switch state {
+        case .dirty, .blocked, .unstable: return .red
+        case .behind:                     return .orange
+        default:                          return .secondary
+        }
+    }
 
     private var helpText: String {
         switch state {
@@ -864,6 +1032,35 @@ private struct MutedChip: View {
 
 // MARK: - Helpers
 
+private extension GroupBy {
+    var menuLabel: String {
+        switch self {
+        case .status: return "Status"
+        case .repo:   return "Repository"
+        case .org:    return "Organization"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .status: return "circle.grid.2x2"
+        case .repo:   return "folder"
+        case .org:    return "building.2"
+        }
+    }
+}
+
+/// The popover reserves color for conditions that need attention. Passing,
+/// neutral, and absent checks remain distinguishable by glyph without adding
+/// another persistent accent to every row.
+private func popoverCheckColor(_ status: CheckStatus) -> Color {
+    switch status {
+    case .failure: return .red
+    case .pending: return .orange
+    case .success, .neutral, .none: return .secondary
+    }
+}
+
 private func statusLabel(_ s: PRStatus) -> String {
     switch s {
     case .changes:  return "Changes requested"
@@ -872,4 +1069,3 @@ private func statusLabel(_ s: PRStatus) -> String {
     case .open:     return "Open"
     }
 }
-
