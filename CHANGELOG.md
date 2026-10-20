@@ -6,6 +6,22 @@ loosely tracks [SemVer](https://semver.org/spec/v2.0.0.html) — patches
 for bugs, minor bumps for new features, major bumps for breaking changes
 to settings shape or filesystem layout.
 
+## [Unreleased]
+
+### Developer
+- **Launch smoke test.** `./smoke-launch.sh` starts a built `Pulley.app`
+  with the build tree's resource bundles hidden and fails if it doesn't
+  stay up. CI runs it on every PR, and the release workflow runs it
+  before publishing — this would have caught the 1.7.0–1.9.0 launch
+  crash.
+- CI now runs on every pull request, including stacked PRs that target
+  other branches.
+- **Homebrew tap updates work again.** They had failed since 1.7.0 (the
+  CI clone had no git credentials), leaving the cask on 1.6.1.
+  `./update-tap.sh` now runs as its own release step after publishing,
+  so a failure turns the run red instead of logging a warning. The cask
+  is now on 1.10.0.
+
 ## [1.10.0] - 2026-10-20
 
 ### Added

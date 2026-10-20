@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Every PR, not just ones into main: stacked PRs target each other and
+  # would otherwise merge without ever being built.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -40,6 +41,14 @@ jobs:
 
       - name: swift build (release)
         run: swift build -c release
+
+      - name: Bundle Pulley.app
+        run: ./build.sh
+
+      # Catches a .app that only works on the machine that built it — e.g.
+      # the missing resource bundle that crashed 1.7.0–1.9.0 at launch.
+      - name: Smoke-test launch
+        run: ./smoke-launch.sh Pulley.app
 
   changelog:
     if: github.event_name == 'pull_request'
