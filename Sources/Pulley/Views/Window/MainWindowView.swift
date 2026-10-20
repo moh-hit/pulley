@@ -108,7 +108,10 @@ struct MainWindowView: View {
 
                         Group {
                             if let pr = selectedPR {
+                                // A fresh pane per PR: loads in `onChange(of: pr.id)`
+                                // read a stale `pr`, fetching the previous PR's data.
                                 PRDetailPane(pr: pr, fullScreenDiff: $diffFullScreen)
+                                    .id(pr.id)
                             } else {
                                 EmptyDetail()
                             }

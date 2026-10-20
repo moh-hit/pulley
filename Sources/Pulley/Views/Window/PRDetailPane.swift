@@ -836,9 +836,10 @@ struct PRDetailPane: View {
 
     private func openStackEntry(_ entry: StackEntry) {
         guard entry.number != pr.number else { return }
-        let id = "\(pr.org)/\(pr.repo)#\(entry.number)"
-        if store.prs.contains(where: { $0.id == id }) {
-            NotificationCenter.default.post(name: .pulleySelectPR, object: id)
+        if let target = store.prs.first(where: {
+            $0.org == pr.org && $0.repo == pr.repo && $0.number == entry.number
+        }) {
+            NotificationCenter.default.post(name: .pulleySelectPR, object: target.id)
         } else {
             PRActions.openInBrowser(entry.url)
         }
@@ -1075,6 +1076,10 @@ struct PRDetailPane: View {
         stackReloadToken += 1
         let token = stackReloadToken
         stackEntries = []
+        if store.isMockData {
+            stackEntries = MockData.stackEntries(for: pr)
+            return
+        }
         guard pr.stack != nil, let client = Config.makeClient() else { return }
         let org = pr.org, repo = pr.repo, number = pr.number
         Task {
@@ -1582,7 +1587,12 @@ struct PRDetailPane: View {
             copilot = nil
         }
         let token = copilotReloadToken
-        guard Config.copilotReviewEnabled, let client = Config.makeClient() else { return }
+        guard Config.copilotReviewEnabled else { return }
+        if store.isMockData {
+            copilot = MockData.copilotReview(for: pr)
+            return
+        }
+        guard let client = Config.makeClient() else { return }
         let org = pr.org, repo = pr.repo, number = pr.number
         Task {
             if poll { try? await Task.sleep(nanoseconds: 30_000_000_000) }
