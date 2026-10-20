@@ -28,18 +28,15 @@ struct HomePane: View {
                 if prs.isEmpty {
                     emptyState
                 } else {
-                    HStack(alignment: .top, spacing: 14) {
-                        cards
-                        totals
-                    }
+                    cards
                     activity
                 }
             }
             .padding(.horizontal, 40)
             .padding(.top, 36)
             .padding(.bottom, 40)
-            .frame(maxWidth: 1000, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 940, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -80,7 +77,7 @@ struct HomePane: View {
         HStack(spacing: 12) {
             HomeCard(
                 value: count(.changes), title: "Changes requested",
-                caption: "Waiting on the author", tint: count(.changes) > 0 ? .red : nil
+                caption: "Sent back for changes", tint: count(.changes) > 0 ? .red : nil
             ) { onOpen(.prs(.status(.changes)), nil) }
             HomeCard(
                 value: count(.review), title: "In review",
@@ -90,6 +87,11 @@ struct HomePane: View {
                 value: count(.approved), title: "Approved",
                 caption: readyToMerge > 0 ? "\(readyToMerge) ready to merge" : "None ready to merge"
             ) { onOpen(.prs(.status(.approved)), nil) }
+            HomeCard(
+                value: failingCI, title: "CI failing",
+                caption: failingCI > 0 ? "Checks to look at" : "All checks passing",
+                tint: failingCI > 0 ? .red : nil
+            ) { onOpen(.prs(.failingCI), nil) }
         }
     }
 
@@ -97,28 +99,7 @@ struct HomePane: View {
         prs.filter { $0.status == .review }.map(\.createdAt).min().map(relativeTime)
     }
 
-    private var totals: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            totalRow(prs.count, "open pull requests")
-            totalRow(Set(prs.map { "\($0.org)/\($0.repo)" }).count, "repositories")
-            totalRow(failingCI, "failing CI", tint: failingCI > 0 ? .red : nil)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .frame(width: 210, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.chrome.opacity(0.6)))
-    }
 
-    private func totalRow(_ value: Int, _ label: String, tint: Color? = nil) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Text("\(value)")
-                .font(Theme.display(22))
-                .foregroundColor(tint ?? .primary)
-            Text(label)
-                .font(Theme.ui(12))
-                .foregroundColor(.secondary)
-        }
-    }
 
     // MARK: Activity
 
@@ -244,10 +225,13 @@ private struct ActivityRow: View {
                         .foregroundColor(.secondary)
                 }
                 Spacer(minLength: 8)
-                MergeFlowChip(pr: pr)
-                Text(pr.status.label)
-                    .font(Theme.ui(12))
-                    .foregroundColor(pr.status == .changes ? .red : .secondary)
+                if let attention = RowAttention(pr: pr) {
+                    AttentionChip(attention: attention)
+                } else {
+                    Text(pr.status.label)
+                        .font(Theme.ui(12))
+                        .foregroundColor(.secondary)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)

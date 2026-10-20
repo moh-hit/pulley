@@ -8,12 +8,15 @@ enum SidebarFilter: Hashable, Identifiable {
     case all
     case status(PRStatus)
     case org(String)
+    /// Reached from Home's "CI failing" card; not a sidebar entry.
+    case failingCI
 
     var id: String {
         switch self {
         case .all:             return "all"
         case .status(let s):   return "status:\(s.rawValue)"
         case .org(let o):      return "org:\(o)"
+        case .failingCI:       return "failingCI"
         }
     }
 
@@ -25,6 +28,7 @@ enum SidebarFilter: Hashable, Identifiable {
         case .status(.review):   return "In review"
         case .status(.open):     return "Open"
         case .org(let o):        return o
+        case .failingCI:         return "CI failing"
         }
     }
 
@@ -36,6 +40,7 @@ enum SidebarFilter: Hashable, Identifiable {
         case .status(.review):  return "eye"
         case .status(.open):    return "circle.dashed"
         case .org:              return "building.2"
+        case .failingCI:        return "xmark.octagon.fill"
         }
     }
 }
@@ -64,6 +69,7 @@ struct MainWindowView: View {
         case .all:                base = store.prs
         case .status(let s):      base = store.prs.filter { $0.status == s }
         case .org(let o):         base = store.prs.filter { $0.org == o }
+        case .failingCI:          base = store.prs.filter { $0.checkStatus == .failure }
         }
         guard !query.isEmpty else { return base }
         let q = query.lowercased()

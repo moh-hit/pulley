@@ -275,7 +275,7 @@ private struct WindowPRRow: View {
                     .fixedSize()
                 Spacer(minLength: 0)
                 if let attention = RowAttention(pr: pr) {
-                    attentionChip(attention)
+                    AttentionChip(attention: attention)
                 }
             }
         }
@@ -285,20 +285,6 @@ private struct WindowPRRow: View {
 
     // MARK: chips
 
-    private func attentionChip(_ a: RowAttention) -> some View {
-        HStack(spacing: 4) {
-            Icon(a.icon, size: 10)
-            Text(a.label)
-                .font(Theme.ui(11, .medium))
-                .lineLimit(1)
-        }
-        .foregroundColor(a.tint)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .background(Capsule().fill(a.tint.opacity(0.10)))
-        .fixedSize()
-        .help(a.help)
-    }
 
     private var repoLabel: some View {
         HStack(spacing: 4) {
@@ -432,5 +418,25 @@ struct RowAttention {
         self.icon = icon
         self.tint = tint
         self.help = help
+    }
+}
+
+/// The one-chip "what needs you" label shared by list rows and Home's feed.
+struct AttentionChip: View {
+    let attention: RowAttention
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Icon(attention.icon, size: 10)
+            Text(attention.label)
+                .font(Theme.ui(11, .medium))
+                .lineLimit(1)
+        }
+        .foregroundColor(attention.tint)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(attention.tint.opacity(0.10)))
+        .fixedSize()
+        .help(attention.help)
     }
 }
