@@ -53,6 +53,13 @@ to settings shape or filesystem layout.
   rejected instead of merging unseen code.
 
 ### Fixed
+- **Release builds crashed at launch** (since 1.7.0). The menu-bar logo
+  loaded through SwiftPM's `Bundle.module`, which only looks beside the
+  .app and at the build machine's `.build` folder, and aborts when
+  neither exists. Downloaded builds therefore crashed before showing
+  anything; builds from source worked only on the machine that built
+  them. Pulley now loads its resources from `Contents/Resources`, where
+  the build puts them.
 - Switching PRs in the main window could load the previously selected
   PR's data into the detail pane: its stack, Copilot status, and
   potentially its description, files and comments. The pane is now built
