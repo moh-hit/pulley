@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Custom Pulley logomark (vector SVG → crisp at any backing scale),
             // tinted by the system as a template image. Falls back to the VCS
             // branch SF Symbol if the bundled asset is somehow missing.
-            if let url = Bundle.module.url(forResource: "MenuBarIcon", withExtension: "svg"),
+            if let url = Bundle.pulleyResources.url(forResource: "MenuBarIcon", withExtension: "svg"),
                let mark = NSImage(contentsOf: url) {
                 // Height ~ the menu-bar glyph metric; width follows the 84:96
                 // aspect ratio so it isn't squashed.
@@ -566,4 +566,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
     }
+}
+
+extension Bundle {
+    /// The SwiftPM resource bundle (`Pulley_Pulley.bundle`). Don't use the
+    /// generated `Bundle.module`: it only looks beside the .app and at the
+    /// build machine's `.build` path, and traps when neither exists — so a
+    /// packaged release crashed at launch everywhere except the machine that
+    /// built it. `build.sh` copies the bundle into Contents/Resources; debug
+    /// `swift build` binaries have it beside the executable.
+    static let pulleyResources: Bundle = {
+        let candidates = [
+            Bundle.main.resourceURL,
+            Bundle.main.executableURL?.deletingLastPathComponent(),
+        ]
+        for dir in candidates.compactMap({ $0 }) {
+            if let bundle = Bundle(url: dir.appendingPathComponent("Pulley_Pulley.bundle")) {
+                return bundle
+            }
+        }
+        return .main
+    }()
 }

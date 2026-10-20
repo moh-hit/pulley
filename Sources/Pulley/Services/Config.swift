@@ -143,6 +143,8 @@ enum Config {
     /// — call only when about to hit the API. Collapses the token-fetch +
     /// empty-guard + construct dance that every API call site otherwise repeats.
     static func makeClient() -> GitHubClient? {
+        // Mock-data previews must never read the Keychain or call GitHub.
+        guard !MockData.isEnabled else { return nil }
         let token = self.token
         guard !token.isEmpty else { return nil }
         return GitHubClient(token: token, orgs: orgs)

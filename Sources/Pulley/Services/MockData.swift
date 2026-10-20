@@ -59,9 +59,9 @@ enum MockData {
         Spec(913, "Address review feedback in session handoff", repo: "web", branch: "fix/session-handoff", status: .changes, ageMinutes: 64, checks: .success, mergeable: .blocked),
         Spec(77, "Correct Terraform role permissions", org: "northstar", repo: "infra", branch: "fix/ci-role-policy", status: .changes, ageMinutes: 150, checks: .failure, mergeable: .unstable, checkCount: 5),
 
-        Spec(1207, "Ship new pricing page hero", repo: "web", branch: "feat/pricing-hero", status: .approved, ageMinutes: 46, queue: 2),
+        Spec(1207, "Ship new pricing page hero", repo: "web", branch: "feat/pricing-hero", status: .approved, ageMinutes: 46),
         Spec(334, "Add offline banner to mobile checkout", repo: "mobile", branch: "feat/offline-checkout-banner", status: .approved, ageMinutes: 82, checkCount: 4),
-        Spec(64, "Rotate staging deployment credentials", org: "northstar", repo: "infra", branch: "chore/rotate-staging-credentials", status: .approved, ageMinutes: 205),
+        Spec(64, "Rotate staging deployment credentials", org: "northstar", repo: "infra", branch: "chore/rotate-staging-credentials", status: .approved, ageMinutes: 205, queue: 2),
         Spec(556, "Use semantic tokens in account settings", repo: "design-system", branch: "refactor/account-tokens", status: .approved, ageMinutes: 390, checks: .neutral, checkCount: 2),
 
         Spec(1211, "Refactor checkout reducer to remove duplicated state transitions", repo: "web", branch: "refactor/checkout-reducer", status: .review, ageMinutes: 60, checks: .failure, mergeable: .unstable, checkCount: 6),
@@ -105,11 +105,35 @@ enum MockData {
         }
     }
 
-    /// The pricing hero and checkout reducer refactor form a two-PR stack.
+    /// The checkout reducer refactor and pricing hero sit on a merged base PR.
     private static let stacks: [Int: StackInfo] = [
-        1207: StackInfo(number: 41, size: 2, position: 1),
-        1211: StackInfo(number: 41, size: 2, position: 2),
+        1211: StackInfo(number: 41, size: 3, position: 2),
+        1207: StackInfo(number: 41, size: 3, position: 3),
     ]
+
+    /// Copilot review fixtures: reviewed at head, reviewed an older push,
+    /// and reviewing now; everything else has never been reviewed.
+    static func copilotReview(for pr: PR) -> CopilotReviewState {
+        let now = Date()
+        switch pr.number {
+        case 1207: return CopilotReviewState(requested: false, lastReviewAt: now.addingTimeInterval(-1500), lastReviewedCommit: pr.headSha)
+        case 1211: return CopilotReviewState(requested: false, lastReviewAt: now.addingTimeInterval(-7200), lastReviewedCommit: "older")
+        case 501:  return CopilotReviewState(requested: true, lastReviewAt: nil, lastReviewedCommit: nil)
+        default:   return CopilotReviewState(requested: false, lastReviewAt: nil, lastReviewedCommit: nil)
+        }
+    }
+
+    /// Entries for the fixture stack, plus a merged PR at the bottom so the
+    /// breadcrumb shows every state.
+    static func stackEntries(for pr: PR) -> [StackEntry] {
+        guard pr.stack != nil else { return [] }
+        let url = URL(string: "https://example.com/acme/web/pulls")!
+        return [
+            StackEntry(position: 1, number: 1199, title: "Extract pricing tokens", state: "MERGED", isDraft: false, url: url),
+            StackEntry(position: 2, number: 1211, title: "Refactor checkout reducer to remove duplicated state transitions", state: "OPEN", isDraft: false, url: url),
+            StackEntry(position: 3, number: 1207, title: "Ship new pricing page hero", state: "OPEN", isDraft: false, url: url),
+        ]
+    }
 
     private static func mergeInfo(for spec: Spec) -> MergeInfo {
         MergeInfo(
@@ -157,5 +181,9 @@ enum MockData {
     #else
     static let isEnabled = false
     static var prs: [PR] { [] }
+    static func copilotReview(for pr: PR) -> CopilotReviewState {
+        CopilotReviewState(requested: false, lastReviewAt: nil, lastReviewedCommit: nil)
+    }
+    static func stackEntries(for pr: PR) -> [StackEntry] { [] }
     #endif
 }

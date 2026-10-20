@@ -52,6 +52,22 @@ to settings shape or filesystem layout.
   showed you, like direct merges, so a push that lands in between is
   rejected instead of merging unseen code.
 
+### Fixed
+- **Release builds crashed at launch** (since 1.7.0). The menu-bar logo
+  loaded through SwiftPM's `Bundle.module`, which only looks beside the
+  .app and at the build machine's `.build` folder, and aborts when
+  neither exists. Downloaded builds therefore crashed before showing
+  anything; builds from source worked only on the machine that built
+  them. Pulley now loads its resources from `Contents/Resources`, where
+  the build puts them.
+- Switching PRs in the main window could load the previously selected
+  PR's data into the detail pane: its stack, Copilot status, and
+  potentially its description, files and comments. The pane is now built
+  fresh for each PR.
+- Debug mock-data mode (`PULLEY_MOCK_DATA=1`) no longer reads the Keychain
+  token or calls GitHub from the detail pane. The Copilot status and the
+  stack breadcrumb get fixtures instead.
+
 ### Developer
 - CI and release workflows bump `actions/checkout` to v7 and
   `actions/cache` to v6 (supersedes the Dependabot PRs #24 and #25).
