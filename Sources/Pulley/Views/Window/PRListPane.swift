@@ -401,11 +401,11 @@ struct RowAttention {
         } else if pr.merge?.autoMerge != nil {
             self.init("Auto-merge", "clock.arrow.circlepath", mergePurple, "Merges once requirements pass")
         } else if pr.mergeableState == .blocked {
-            self.init("Blocked", "lock.fill", .secondary, "Blocked by required reviews or branch protection")
+            self.init("Blocked", "lock.fill", .orange, "Blocked by required reviews or branch protection")
         } else if pr.mergeableState == .behind {
-            self.init("Behind base", "arrow.down.circle.fill", .secondary, "Base branch has moved ahead")
+            self.init("Behind base", "arrow.down.circle.fill", .orange, "Base branch has moved ahead")
         } else if pr.checkStatus == .pending {
-            self.init("CI running", "clock.fill", .secondary, "Checks still running")
+            self.init("CI running", "clock.fill", .orange, "Checks still running")
         } else if pr.isDraft {
             self.init("Draft", "circle.dashed", .secondary, "Draft pull request")
         } else {

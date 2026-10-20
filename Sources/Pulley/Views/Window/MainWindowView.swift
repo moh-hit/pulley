@@ -46,6 +46,8 @@ struct MainWindowView: View {
     @State private var selectedPRID: String? = nil
     @State private var query: String = ""
     @State private var showSettings: Bool = false
+    /// Sidebar collapsed to the icon rail — the user's choice, remembered.
+    @AppStorage("ui.sidebarCollapsed") private var userCollapsed = false
     @State private var groupMode: ListGroupMode = .none
     /// True while the detail pane is showing a full-pane file diff — we hide the
     /// PR list so the diff spans the whole panel.
@@ -88,11 +90,13 @@ struct MainWindowView: View {
     }
 
     private func content(narrow: Bool, height: CGFloat) -> some View {
-        HStack(spacing: 0) {
+        VStack(spacing: 0) {
+            topStrip(narrow: narrow)
+            HStack(spacing: 0) {
             SidebarView(
                 section: $section,
-                forceCollapsed: narrow,
-                onOpenSettings: { showSettings = true }
+                onOpenSettings: { showSettings = true },
+                collapsed: userCollapsed || narrow
             )
             VStack(spacing: 0) {
                 if let error = store.lastError {
@@ -110,8 +114,9 @@ struct MainWindowView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Theme.hairline, lineWidth: 1)
                 )
-                .padding(.vertical, 10)
+                .padding(.bottom, 10)
                 .padding(.trailing, 10)
+            }
         }
         .background(Theme.chrome)
         .background(KeyCommands { handle($0) })
@@ -198,6 +203,32 @@ struct MainWindowView: View {
                 )
             }
         }
+    }
+
+    /// The warm strip across the top: window buttons and the sidebar toggle
+    /// share one line, and the content panel starts below it so nothing
+    /// straddles the panel's edge.
+    private func topStrip(narrow: Bool) -> some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: 72, height: 1)   // window buttons
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) { userCollapsed.toggle() }
+            } label: {
+                Icon("sidebar.left", size: 15)
+                    .foregroundColor(.secondary)
+                    .frame(width: 30, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("s", modifiers: [.command, .control])
+            .disabled(narrow)
+            .help(narrow
+                  ? "Widen the window to show the sidebar"
+                  : (userCollapsed ? "Show sidebar (⌃⌘S)" : "Hide sidebar (⌃⌘S)"))
+            .accessibilityLabel(userCollapsed || narrow ? "Show sidebar" : "Hide sidebar")
+            Spacer(minLength: 0)
+        }
+        .frame(height: 32)
     }
 
     /// List keyboard commands. Only meaningful on a PR list.

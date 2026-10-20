@@ -14,16 +14,11 @@ enum MainSection: Hashable {
 struct SidebarView: View {
     @EnvironmentObject var store: Store
     @Binding var section: MainSection
-    /// Set by the window when it is too narrow for the full sidebar.
-    var forceCollapsed: Bool = false
     let onOpenSettings: () -> Void
 
     @State private var nowTick = Date()
-    /// The user's choice, remembered across launches.
-    @AppStorage("ui.sidebarCollapsed") private var userCollapsed = false
-
-    /// Icon-only rail: by choice, or because the window is too narrow.
-    private var collapsed: Bool { userCollapsed || forceCollapsed }
+    /// Icon-only rail, decided by the window (user choice or too narrow).
+    let collapsed: Bool
 
     private static let statuses: [PRStatus] = [.changes, .review, .approved, .open]
 
@@ -34,21 +29,12 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: collapsed ? .center : .leading, spacing: 2) {
-            if collapsed {
-                // Below the traffic lights, which take the rail's top edge.
-                toggleButton
-                    .padding(.top, 38)
-                    .padding(.bottom, 12)
-            } else {
-                HStack {
-                    Spacer().frame(width: 68)   // traffic lights
-                    toggleButton
-                    Spacer()
-                }
-                .frame(height: 28)
+            if !collapsed {
                 brand
                     .padding(.top, 10)
                     .padding(.bottom, 14)
+            } else {
+                Spacer().frame(height: 10)
             }
 
             SidebarItem(
@@ -147,23 +133,6 @@ struct SidebarView: View {
         }
     }
 
-    private var toggleButton: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.18)) { userCollapsed.toggle() }
-        } label: {
-            Icon("sidebar.left", size: 15)
-                .foregroundColor(.secondary)
-                .frame(width: 28, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut("s", modifiers: [.command, .control])
-        .disabled(forceCollapsed)
-        .help(forceCollapsed
-              ? "Widen the window to show the sidebar"
-              : (collapsed ? "Show sidebar (⌃⌘S)" : "Hide sidebar (⌃⌘S)"))
-        .accessibilityLabel(collapsed ? "Show sidebar" : "Hide sidebar")
-    }
 
     /// "Synced 2m ago" — click to sync now.
     private var syncRow: some View {
