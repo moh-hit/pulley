@@ -653,6 +653,7 @@ private struct PRRow: View {
                     MergeableChip(state: pr.mergeableState)
                 }
                 MergeFlowChip(pr: pr)
+                StackChip(pr: pr)
 
                 if showRepo {
                     RepoChip(

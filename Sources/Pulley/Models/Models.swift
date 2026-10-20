@@ -100,6 +100,36 @@ struct MergeInfo: Codable, Hashable {
     }
 }
 
+/// Membership in a native GitHub stack (stacked pull requests).
+struct StackInfo: Codable, Hashable {
+    let number: Int
+    let size: Int
+    /// 1 = bottom of the stack (closest to the base branch).
+    let position: Int
+}
+
+/// One PR in a stack, fetched on demand for the detail pane's stack bar.
+struct StackEntry: Hashable, Identifiable, Sendable {
+    let position: Int
+    let number: Int
+    let title: String
+    /// OPEN | CLOSED | MERGED
+    let state: String
+    let isDraft: Bool
+    let url: URL
+    var id: Int { number }
+}
+
+/// Outcome of an async merge request (`PUT …/merge-async`), the only merge
+/// API that handles stacks.
+enum AsyncMergeResult: Equatable, Sendable {
+    case pending(uuid: String)
+    case merged
+    /// Final for queue requests — it's in the queue, not merged yet.
+    case enqueued
+    case failed(String)
+}
+
 /// What the detail pane's merge control should offer for a PR right now.
 enum MergeAction: Equatable {
     /// Cleanly mergeable, no queue: merge immediately.
@@ -403,6 +433,8 @@ struct PR: Identifiable, Hashable, Codable {
     /// Auto-merge / merge-queue state and repo merge settings. `var` with a
     /// default so the memberwise init and older cached blobs don't need it.
     var merge: MergeInfo? = nil
+    /// Set when the PR belongs to a native GitHub stack.
+    var stack: StackInfo? = nil
 
     /// Copy with a flipped draft flag. PR's fields are immutable, so the
     /// optimistic draft toggles in `Store` would otherwise re-list every
@@ -427,7 +459,8 @@ struct PR: Identifiable, Hashable, Codable {
             checkStatus: checkStatus,
             mergeableState: mergeableState,
             nodeID: nodeID,
-            merge: merge
+            merge: merge,
+            stack: stack
         )
     }
 

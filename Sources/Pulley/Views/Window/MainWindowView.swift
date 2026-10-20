@@ -140,5 +140,8 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .pulleyMainOpenSettings)) { _ in
             showSettings = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .pulleySelectPR)) { note in
+            if let id = note.object as? String { selectedPRID = id }
+        }
     }
 }
