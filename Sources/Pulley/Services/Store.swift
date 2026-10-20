@@ -10,6 +10,10 @@ final class Store: ObservableObject {
     @Published var lastError: String? = nil
     @Published var lastSync: Date? = nil
 
+    /// True only for debug launches explicitly started with
+    /// `PULLEY_MOCK_DATA=1`. Mock mode never reads or writes user data.
+    let isMockData: Bool
+
     private var timer: Timer?
     // v2: added PR.mergeableState — v1 cached blobs fail to decode and are dropped.
     private let cacheKey         = "store.prs.cache.v2"
@@ -34,8 +38,14 @@ final class Store: ObservableObject {
     private let draftOverrideTTL: TimeInterval = 30
 
     init() {
-        loadCache()
-        startTimer()
+        isMockData = MockData.isEnabled
+        if isMockData {
+            prs = MockData.prs
+            lastSync = Date().addingTimeInterval(-60)
+        } else {
+            loadCache()
+            startTimer()
+        }
     }
 
     /// Restore the last sync's PR list so the popover shows something
@@ -56,6 +66,7 @@ final class Store: ObservableObject {
     }
 
     private func saveCache() {
+        guard !isMockData else { return }
         if let data = try? JSONEncoder().encode(prs) {
             UserDefaults.standard.set(data, forKey: cacheKey)
         }
@@ -93,6 +104,7 @@ final class Store: ObservableObject {
     }
 
     func startTimer() {
+        guard !isMockData else { return }
         timer?.invalidate()
         // Auto-sync every 30 minutes (manual sync still available via the button)
         timer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
@@ -111,6 +123,10 @@ final class Store: ObservableObject {
 
     func sync() {
         guard !syncing else { return }
+        if isMockData {
+            syncMockData()
+            return
+        }
         guard Config.hasToken, !Config.orgs.isEmpty else {
             lastError = "Token or org not set"
             return
@@ -162,6 +178,19 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Give preview interactions realistic loading feedback while keeping the
+    /// session entirely local and deterministic.
+    private func syncMockData() {
+        syncing = true
+        lastError = nil
+        Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            self.prs = MockData.prs
+            self.lastSync = Date()
+            self.syncing = false
+        }
+    }
+
     /// Optimistically drop the thread locally and remember it as read (keyed by
     /// its current `updatedAt`), so it stays gone even though GitHub's cached
     /// `/notifications` feed keeps returning it for a while. Then PATCH GitHub
@@ -172,6 +201,7 @@ final class Store: ObservableObject {
         readThreads[id] = readAt
         notifications.removeAll { $0.id == id }
         saveCache()
+        guard !isMockData else { return }
         guard let client = Config.makeClient() else { return }
         Task.detached {
             try? await client.markNotificationRead(threadID: id)
