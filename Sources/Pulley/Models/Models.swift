@@ -589,6 +589,19 @@ struct PRReviewComment: Identifiable, Hashable, Sendable {
     let createdAt: Date
     /// Set when this comment is a reply to another (threaded under its parent).
     let inReplyToID: Int?
+    /// Posted by a bot account (Copilot, CodeRabbit, …) — rendered collapsed
+    /// so automated review noise doesn't drown out people.
+    var isBot: Bool = false
+}
+
+/// Copilot code review status for one PR, fetched by the detail pane.
+struct CopilotReviewState: Hashable, Sendable {
+    /// Copilot is currently a requested reviewer (review in progress).
+    let requested: Bool
+    let lastReviewAt: Date?
+    /// Head commit Copilot's latest review was on — compared against the
+    /// PR head to tell "reviewed" from "reviewed an older push".
+    let lastReviewedCommit: String?
 }
 
 // MARK: - Changed files / diffs

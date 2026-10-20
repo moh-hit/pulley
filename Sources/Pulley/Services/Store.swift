@@ -36,6 +36,12 @@ final class Store: ObservableObject {
     /// so during the TTL window we prefer the override over whatever the
     /// fetch returned — otherwise the UI flips, syncs, then flips back.
     private var draftOverrides: [String: (isDraft: Bool, at: Date)] = [:]
+
+    /// When the user asked Copilot to review each PR from Pulley. Lives here
+    /// rather than in the detail pane so it survives switching PRs; used to
+    /// tell "still reviewing" from "never going to answer" (GitHub accepts
+    /// the request even when Copilot isn't available to the user).
+    var copilotRequestedAt: [String: Date] = [:]
     private let draftOverrideTTL: TimeInterval = 30
 
     /// Same idea for auto-merge / merge-queue changes made from Pulley: the
