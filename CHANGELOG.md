@@ -6,6 +6,32 @@ loosely tracks [SemVer](https://semver.org/spec/v2.0.0.html) — patches
 for bugs, minor bumps for new features, major bumps for breaking changes
 to settings shape or filesystem layout.
 
+## [1.9.0] - 2026-10-20
+
+### Changed
+- **Calmer popover rows.** A collapsed row now shows only what you scan
+  for: title, age, grouping context, and conditions that need attention.
+  Branch, PR number, **Open PR** / **IDE** actions and the checks list
+  move into the expanded row. Clicking a row now expands it (one at a
+  time) instead of opening the browser; **Open PR** is one click away.
+- Hover a row for quick-copy buttons for the PR link and branch name.
+- Popover header: Open window / Settings / Quit move into an overflow
+  menu, and a *Syncing…* state replaces the timestamp while syncing.
+- Search field and a single **View** menu for group-by and scope replace
+  the segmented controls. Org grouping and the org prefix now follow the
+  orgs actually present in your results.
+- The `unstable` mergeable state no longer gets its own badge in the
+  popover — the CI status already shows it.
+
+### Fixed
+- Sync errors no longer appear as truncated red text in the header; a
+  banner explains the failure and offers **Retry** (hover for details).
+
+### Developer
+- Debug builds launched with `PULLEY_MOCK_DATA=1` load deterministic
+  fixture PRs without reading the Keychain, writing the cache, or
+  calling GitHub — handy for UI work and screenshots.
+
 ## [1.8.0] - 2026-06-13
 
 ### Added
@@ -251,7 +277,11 @@ to settings shape or filesystem layout.
 - Tag-push release pipeline (`.github/workflows/release.yml`) that
   builds an ad-hoc-signed DMG.
 
-[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/moh-hit/pulley/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/moh-hit/pulley/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/moh-hit/pulley/compare/v1.6.1...v1.7.0
+[1.6.1]: https://github.com/moh-hit/pulley/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/moh-hit/pulley/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/moh-hit/pulley/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/moh-hit/pulley/compare/v1.3.1...v1.4.0

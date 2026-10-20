@@ -734,7 +734,11 @@ private struct PRRow: View {
                         icon: "chevron.left.forwardslash.chevron.right"
                     ) {
                         checkingOut = true
-                        PRActions.checkoutAndOpen(pr: pr) { checkingOut = false }
+                        // Button actions run on the main thread, but Swift 5.10
+                        // doesn't infer that for a helper property like this.
+                        MainActor.assumeIsolated {
+                            PRActions.checkoutAndOpen(pr: pr) { checkingOut = false }
+                        }
                     }
                 }
             }
