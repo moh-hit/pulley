@@ -64,6 +64,9 @@ struct SettingsView: View {
     @State private var density = Config.listDensity
     @State private var showContributions = Config.showContributions
     @State private var collapseBots = Config.collapseBotComments
+    @State private var hideDrafts = Config.hideDraftsInMenuBar
+    @State private var mutedRepos: [String] = Config.mutedRepos.sorted()
+    @State private var newMutedRepo = ""
     @State private var copilotReview = Config.copilotReviewEnabled
     @State private var mergeMethod = Config.mergeMethod
     @State private var preferredIDE = Config.preferredIDE
@@ -106,6 +109,8 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: launchAtLogin) { Config.launchAtLogin = $0 }
+        // The popover's tabs change the scope too; follow them.
+        .onChange(of: store.scope) { scope = $0 }
         .onChange(of: startPage) { Config.startPage = $0 }
         .onChange(of: syncInterval) {
             Config.syncIntervalMinutes = $0
@@ -126,6 +131,11 @@ struct SettingsView: View {
         .onChange(of: density) { Config.listDensity = $0 }
         .onChange(of: showContributions) { Config.showContributions = $0 }
         .onChange(of: collapseBots) { Config.collapseBotComments = $0 }
+        .onChange(of: hideDrafts) {
+            Config.hideDraftsInMenuBar = $0
+            NotificationCenter.default.post(name: .pulleyPreferencesChanged, object: nil)
+            store.refreshScopeCounts()
+        }
         .onChange(of: copilotReview) { Config.copilotReviewEnabled = $0 }
         .onChange(of: mergeMethod) { Config.mergeMethod = $0 }
         .onChange(of: preferredIDE) { Config.preferredIDE = $0 }
@@ -213,6 +223,9 @@ struct SettingsView: View {
                 }
                 SettingsRow("Menu bar count", detail: "The number next to the Pulley icon.") {
                     picker($menuBarCount, MenuBarCount.allCases) { $0.label }
+                }
+                SettingsRow("Hide drafts in the menu bar", detail: "Leave draft PRs out of the menu bar list and count. The window still shows them.") {
+                    Toggle("", isOn: $hideDrafts).toggleStyle(.switch).labelsHidden()
                 }
             }
         }
@@ -314,7 +327,7 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 12)
 
-                SettingsRow("Show pull requests", detail: "Which of your PRs Pulley lists.") {
+                SettingsRow("Show pull requests", detail: "Which of your PRs Pulley lists. The menu bar's tabs switch it too.") {
                     picker($scope, Scope.allCases) { $0.label }
                 }
             }
@@ -423,7 +436,51 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 12)
             }
+            SettingsGroup {
+                VStack(alignment: .leading, spacing: 8) {
+                    rowTitle("Muted repositories", detail: "Hidden from lists, counts, notifications and the Inbox. Right-click a PR in the menu bar to mute its repo.")
+                    ForEach(mutedRepos, id: \.self) { repo in
+                        HStack(spacing: 6) {
+                            Text(repo).font(Theme.mono(12))
+                            Spacer()
+                            Button {
+                                store.unmute(repo)
+                                mutedRepos = Config.mutedRepos.sorted()
+                            } label: {
+                                Icon("minus.circle", size: 13).foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Unmute \(repo)")
+                            .accessibilityLabel("Unmute \(repo)")
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    HStack(spacing: 6) {
+                        TextField("org/repo", text: $newMutedRepo)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(addMutedRepo)
+                        Button("Mute", action: addMutedRepo)
+                            .disabled(!isValidRepoKey(newMutedRepo))
+                    }
+                }
+                .padding(.vertical, 12)
+            }
         }
+        .onAppear { mutedRepos = Config.mutedRepos.sorted() }
+    }
+
+    private func isValidRepoKey(_ s: String) -> Bool {
+        let parts = s.trimmingCharacters(in: .whitespaces).split(separator: "/")
+        return parts.count == 2 && parts.allSatisfy { !$0.isEmpty && !$0.contains(" ") }
+    }
+
+    private func addMutedRepo() {
+        let key = newMutedRepo.trimmingCharacters(in: .whitespaces)
+        guard isValidRepoKey(key) else { return }
+        let parts = key.split(separator: "/").map(String.init)
+        store.mute(org: parts[0], repo: parts[1])
+        mutedRepos = Config.mutedRepos.sorted()
+        newMutedRepo = ""
     }
 
     private var workspaceExists: Bool {
@@ -552,7 +609,7 @@ struct SettingsView: View {
     }
 
     private var githubDirty: Bool {
-        !token.isEmpty || tokenCleared || cleanedOrgs != Config.orgs || scope != Config.scope
+        !token.isEmpty || tokenCleared || cleanedOrgs != Config.orgs || scope != store.scope
     }
 
     private func testConnection() {
@@ -586,7 +643,7 @@ struct SettingsView: View {
             Config.token = ""        // clears keychain + flips hasToken to false
         }
         Config.orgs = orgs
-        Config.scope = scope
+        store.switchScope(scope)
         token = ""
         tokenCleared = false
         orgs = Config.orgs.isEmpty ? [""] : Config.orgs

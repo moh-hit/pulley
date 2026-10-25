@@ -58,6 +58,7 @@ private struct GQLPRNode: Decodable {
     let title: String?
     let url: URL?
     let isDraft: Bool?
+    let viewerDidAuthor: Bool?
     let headRefName: String?
     let headRefOid: String?
     /// BEHIND | BLOCKED | CLEAN | DIRTY | DRAFT | HAS_HOOKS | UNKNOWN | UNSTABLE
@@ -77,6 +78,39 @@ private struct GQLPRNode: Decodable {
     struct StackPosition: Decodable { let position: Int }
     let stack: Stack?
     let stackEntry: StackPosition?
+
+    let additions: Int?
+    let deletions: Int?
+    let changedFiles: Int?
+
+    /// User | Team | Bot | Mannequin; only the fields we mention by.
+    struct Reviewer: Decodable {
+        let typename: String
+        let login: String?
+        let combinedSlug: String?
+        enum CodingKeys: String, CodingKey {
+            case typename = "__typename"
+            case login, combinedSlug
+        }
+        /// "sam" or "acme/platform"; nil for bots and mannequins.
+        var handle: String? {
+            switch typename {
+            case "User": return login
+            case "Team": return combinedSlug
+            default:     return nil
+            }
+        }
+    }
+    struct ReviewRequest: Decodable { let requestedReviewer: Reviewer? }
+    struct ReviewRequests: Decodable { let nodes: [ReviewRequest] }
+    let reviewRequests: ReviewRequests?
+    /// `ReviewRequestedEvent`s, for when each pending request was made.
+    struct RequestEvent: Decodable { let createdAt: Date?; let requestedReviewer: Reviewer? }
+    struct RequestEvents: Decodable { let nodes: [RequestEvent] }
+    let timelineItems: RequestEvents?
+    struct Thread: Decodable { let isResolved: Bool }
+    struct Threads: Decodable { let nodes: [Thread] }
+    let reviewThreads: Threads?
 }
 
 /// `MergeQueueEntry` subset — shared by the search query and the enqueue
@@ -111,6 +145,7 @@ private struct GQLAutoMerge: Decodable {
 /// the decoded shapes can't drift apart.
 private let gqlQueueEntryFields = "position state estimatedTimeToMerge"
 private let gqlAutoMergeFields  = "mergeMethod enabledBy { login }"
+private let gqlReviewerFields   = "__typename ... on User { login } ... on Team { combinedSlug }"
 
 private struct GQLSearch: Decodable {
     struct Result: Decodable { let nodes: [GQLPRNode] }
@@ -874,6 +909,64 @@ struct GitHubClient: Sendable {
         return data
     }
 
+    /// How many open PRs each scope holds, for the popover's tab counts.
+    /// Count-only searches (`first: 0`), all four scopes in one request per
+    /// org. Drafts and muted repos are excluded in the query so the numbers
+    /// match the lists.
+    func fetchScopeCounts(excludeDrafts: Bool, mutedRepos: Set<String>) async throws -> [Scope: Int] {
+        let query = """
+        query($a: String!, $b: String!, $c: String!, $d: String!) {
+          a: search(query: $a, type: ISSUE, first: 0) { issueCount }
+          b: search(query: $b, type: ISSUE, first: 0) { issueCount }
+          c: search(query: $c, type: ISSUE, first: 0) { issueCount }
+          d: search(query: $d, type: ISSUE, first: 0) { issueCount }
+        }
+        """
+        struct Count: Decodable { let issueCount: Int }
+        struct Payload: Decodable { let a: Count; let b: Count; let c: Count; let d: Count }
+        let scopes: [Scope] = [.author, .reviewRequested, .assignee, .involves]
+
+        return try await withThrowingTaskGroup(of: [Scope: Int].self) { group in
+            for org in orgs {
+                group.addTask {
+                    var vars: [String: Any] = [:]
+                    for (key, scope) in zip(["a", "b", "c", "d"], scopes) {
+                        var q = "is:pr is:open org:\(org) \(scope.rawValue):@me"
+                        if excludeDrafts { q += " draft:false" }
+                        // GitHub caps search queries at 256 characters; mute
+                        // as many repos as fit (lists filter the rest locally).
+                        for repo in mutedRepos.sorted() where repo.hasPrefix(org.lowercased() + "/") {
+                            let part = " -repo:\(repo)"
+                            if q.count + part.count <= 256 { q += part }
+                        }
+                        vars[key] = q
+                    }
+                    let p: Payload = try await graphqlFetch(query: query, variables: vars)
+                    return Dictionary(uniqueKeysWithValues: zip(scopes, [p.a, p.b, p.c, p.d].map(\.issueCount)))
+                }
+            }
+            var total: [Scope: Int] = [:]
+            for try await counts in group {
+                total.merge(counts, uniquingKeysWith: +)
+            }
+            return total
+        }
+    }
+
+    /// A plain conversation comment on a PR (`POST …/issues/{n}/comments`).
+    func postComment(org: String, repo: String, number: Int, body: String) async throws {
+        var req = request("/repos/\(org)/\(repo)/issues/\(number)/comments")
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["body": body])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            struct Msg: Decodable { let message: String? }
+            let detail = (try? JSONDecoder().decode(Msg.self, from: data))?.message
+            throw GitHubError(message: detail ?? "Comment failed (HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+    }
+
     func fetchPRs(scope: Scope) async throws -> [PR] {
         guard !token.isEmpty, !orgs.isEmpty else {
             throw GitHubError(message: "Token or org not configured")
@@ -902,7 +995,7 @@ struct GitHubClient: Sendable {
       search(query: $q, type: ISSUE, first: 100) {
         nodes {
           ... on PullRequest {
-            id number title url isDraft headRefName headRefOid mergeStateStatus
+            id number title url isDraft viewerDidAuthor headRefName headRefOid mergeStateStatus
             createdAt updatedAt reviewDecision
             isMergeQueueEnabled viewerCanEnableAutoMerge viewerCanDisableAutoMerge
             mergeQueueEntry { \(gqlQueueEntryFields) }
@@ -914,6 +1007,14 @@ struct GitHubClient: Sendable {
               autoMergeAllowed viewerDefaultMergeMethod
             }
             assignees(first: 1) { nodes { login } }
+            additions deletions changedFiles
+            reviewRequests(first: 10) {
+              nodes { requestedReviewer { \(gqlReviewerFields) } }
+            }
+            timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 20) {
+              nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { \(gqlReviewerFields) } } }
+            }
+            reviewThreads(first: 100) { nodes { isResolved } }
             commits(last: 1) {
               nodes {
                 commit {
@@ -1051,8 +1152,30 @@ struct GitHubClient: Sendable {
             merge: mergeInfo(for: node),
             stack: node.stack.flatMap { s in
                 node.stackEntry.map { StackInfo(number: s.number, size: s.size, position: $0.position) }
-            }
+            },
+            viewerDidAuthor: node.viewerDidAuthor,
+            size: node.additions.map {
+                PRSize(additions: $0, deletions: node.deletions ?? 0, files: node.changedFiles ?? 0)
+            },
+            pendingReviewers: pendingReviewers(node),
+            unresolvedThreads: node.reviewThreads.map { $0.nodes.filter { !$0.isResolved }.count }
         )
+    }
+
+    /// Reviewers still asked for, with when the latest request to each was
+    /// made. Bots (Copilot) are left out: there's no one to wait on or nudge.
+    private static func pendingReviewers(_ node: GQLPRNode) -> [PendingReviewer]? {
+        guard let requests = node.reviewRequests else { return nil }
+        var requestedAt: [String: Date] = [:]
+        for event in node.timelineItems?.nodes ?? [] {
+            if let handle = event.requestedReviewer?.handle, let at = event.createdAt {
+                requestedAt[handle] = max(at, requestedAt[handle] ?? at)
+            }
+        }
+        return requests.nodes.compactMap { req in
+            guard let r = req.requestedReviewer, let handle = r.handle else { return nil }
+            return PendingReviewer(handle: handle, isTeam: r.typename == "Team", requestedAt: requestedAt[handle])
+        }
     }
 
     private static func mergeInfo(for node: GQLPRNode) -> MergeInfo {

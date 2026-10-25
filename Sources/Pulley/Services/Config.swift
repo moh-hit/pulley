@@ -202,6 +202,25 @@ enum Config {
         set { UserDefaults.standard.set(newValue, forKey: "ui.showContributions") }
     }
 
+    /// Leave draft PRs out of the menu-bar popover, count and peek menu.
+    /// The main window still lists them.
+    static let hideDraftsInMenuBarKey = "ui.menuBarHideDrafts"
+    static var hideDraftsInMenuBar: Bool {
+        get { bool(hideDraftsInMenuBarKey, default: false) }
+        set { UserDefaults.standard.set(newValue, forKey: hideDraftsInMenuBarKey) }
+    }
+
+    /// Repos hidden everywhere (lists, counts, notifications, inbox), as
+    /// lowercased "org/repo".
+    static var mutedRepos: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "github.mutedRepos") ?? []) }
+        set { UserDefaults.standard.set(newValue.map { $0.lowercased() }.sorted(), forKey: "github.mutedRepos") }
+    }
+
+    static func isMuted(org: String, repo: String) -> Bool {
+        mutedRepos.contains("\(org)/\(repo)".lowercased())
+    }
+
     static var collapseBotComments: Bool {
         get { bool("review.collapseBotComments", default: true) }
         set { UserDefaults.standard.set(newValue, forKey: "review.collapseBotComments") }

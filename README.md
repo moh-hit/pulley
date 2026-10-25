@@ -33,8 +33,11 @@
 **In the menu bar**
 
 - **Every PR at a glance** across one or many GitHub orgs: changes requested, CI failing, conflicts, behind base, ready to merge.
-- **Grouped your way**: by status, repo or org, and filtered to authored / review-requested / involves / assigned.
-- **Keyboard-first**: `j`/`k` to move, `↩` to open on GitHub, `o` to open in your IDE, `c` to copy the branch. A global hotkey opens it from anywhere.
+- **Tabs for whose PRs**: Authored, Review requests, Assigned and Involved, each with its count. Group by status, repo or org.
+- **Up next**: a footer that picks what to do next, like feedback to address, an approved PR to merge, or the review that has waited longest. Click it to open the PR.
+- **Act from the menu bar**: approve a teammate's green PR, or nudge reviewers who haven't responded (a comment that mentions them). Rows show PR size and unresolved review threads.
+- **Mute repos** you're involved in but don't care about: right-click a PR. Muted repos drop out of lists, counts, notifications and the Inbox.
+- **Keyboard-first**: `⌘1`–`⌘4` to switch tabs, `j`/`k` to move, `↩` to open on GitHub, `o` to open in your IDE, `c` to copy the branch. A global hotkey opens it from anywhere.
 - **Notifications** for the changes you pick: new PRs, approvals and change requests, CI results, merge conflicts, merge queue and auto-merge.
 
 **In the main window**
@@ -52,7 +55,7 @@
 **Everything else**
 
 - **Open in IDE**: one click checks the branch out as a git worktree beside your clone and opens it in VS Code, Cursor or Zed, so your main checkout stays untouched.
-- **Make it yours**: light or dark theme, text size, list density, start page, and what the menu-bar count means. Changes apply live.
+- **Make it yours**: light or dark theme, text size, list density, start page, what the menu-bar count means, and whether drafts show in the menu bar. Changes apply live.
 - **Your token stays in the Keychain**, never on disk.
 
 <p align="center">

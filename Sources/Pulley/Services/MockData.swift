@@ -80,7 +80,28 @@ enum MockData {
         Spec(590, "Remove deprecated spacing aliases", repo: "design-system", branch: "chore/remove-spacing-aliases", status: .open, ageMinutes: 1560, checks: .neutral, checkCount: 2),
     ]
 
-    static var prs: [PR] {
+    /// Teammates' PRs waiting on your review: the Review requests tab.
+    private static let reviewSpecs: [Spec] = [
+        Spec(1302, "Add idempotency keys to the refund endpoint", repo: "payments", branch: "feat/refund-idempotency", status: .review, ageMinutes: 2_900, checkCount: 4),
+        Spec(487, "Cache GraphQL schema between deploys", repo: "api", branch: "perf/schema-cache", status: .review, ageMinutes: 300, checks: .pending),
+        Spec(1215, "Replace modal focus trap with inert", repo: "web", branch: "refactor/inert-modals", status: .open, ageMinutes: 90),
+        Spec(345, "Fix crash on cold start when offline", repo: "mobile", branch: "fix/offline-cold-start", status: .review, ageMinutes: 4_300, checks: .failure, mergeable: .unstable, checkCount: 4),
+        Spec(96, "Pin runner images for reproducible builds", org: "northstar", repo: "infra", branch: "chore/pin-runner-images", status: .open, ageMinutes: 50, draft: true),
+        Spec(1219, "Tighten CSP for embedded checkout", repo: "web", branch: "fix/checkout-csp", status: .changes, ageMinutes: 700, mergeable: .blocked),
+    ]
+
+    /// The fixture list for a scope, so the popover's tabs show different PRs.
+    static func prs(for scope: Scope) -> [PR] {
+        switch scope {
+        case .author:          return build(specs)
+        case .reviewRequested: return build(reviewSpecs)
+        case .assignee:        return build(specs.filter { $0.status == .review })
+        case .involves:        return build(specs + reviewSpecs)
+        }
+    }
+
+    private static func build(_ specs: [Spec]) -> [PR] {
+        let reviewNumbers = Set(reviewSpecs.map(\.number))
         let now = Date()
         return specs.map { spec in
             let url = URL(string: "https://example.com/\(spec.org)/\(spec.repo)/pull/\(spec.number)")!
@@ -103,10 +124,38 @@ enum MockData {
                 mergeableState: spec.mergeableState,
                 nodeID: nil,
                 merge: mergeInfo(for: spec),
-                stack: stacks[spec.number]
+                stack: stacks[spec.number],
+                viewerDidAuthor: !reviewNumbers.contains(spec.number),
+                size: size(for: spec.number),
+                pendingReviewers: reviewers[spec.number].map { handles in
+                    handles.map {
+                        PendingReviewer(handle: $0, isTeam: $0.contains("/"),
+                                        requestedAt: now.addingTimeInterval(TimeInterval(-60 * spec.ageMinutes - 172_800)))
+                    }
+                } ?? [],
+                unresolvedThreads: unresolved[spec.number] ?? 0
             )
         }
     }
+
+    /// Lines changed: a couple of tiny PRs (quick reviews), the rest varied.
+    private static func size(for number: Int) -> PRSize {
+        switch number {
+        case 1215: return PRSize(additions: 12, deletions: 3, files: 1)
+        case 342:  return PRSize(additions: 28, deletions: 9, files: 3)
+        default:   return PRSize(additions: number * 37 % 380 + 8, deletions: number * 13 % 120 + 1, files: number % 14 + 1)
+        }
+    }
+
+    /// Reviewers your in-review PRs are still waiting on.
+    private static let reviewers: [Int: [String]] = [
+        1211: ["sam"],
+        342: ["priya"],
+        91: ["northstar/infra-team"],
+        571: ["sam", "acme/design"],
+    ]
+
+    private static let unresolved: [Int: Int] = [482: 4, 1288: 2, 913: 1, 342: 2, 1219: 3]
 
     /// The checkout reducer refactor and pricing hero sit on a merged base PR.
     private static let stacks: [Int: StackInfo] = [
@@ -253,7 +302,7 @@ enum MockData {
     #else
     static let isEnabled = false
     static let initialError: String? = nil
-    static var prs: [PR] { [] }
+    static func prs(for scope: Scope) -> [PR] { [] }
     static func copilotReview(for pr: PR) -> CopilotReviewState {
         CopilotReviewState(requested: false, lastReviewAt: nil, lastReviewedCommit: nil)
     }
