@@ -282,6 +282,20 @@ enum Scope: String, Codable, CaseIterable, Identifiable, Hashable {
         case .assignee:        return "Assigned to me"
         }
     }
+
+    /// Short form for the popover's tab bar, where four tabs share 460pt.
+    var tabLabel: String {
+        switch self {
+        case .author:          return "Authored"
+        case .reviewRequested: return "Review requests"
+        case .assignee:        return "Assigned"
+        case .involves:        return "Involved"
+        }
+    }
+
+    /// Tab order: your own PRs, then the ones waiting on you, then the
+    /// broader sets.
+    static let tabOrder: [Scope] = [.author, .reviewRequested, .assignee, .involves]
 }
 
 /// Raw GitHub `mergeable_state` values, plus `.unknown` for missing.
@@ -468,6 +482,16 @@ struct PR: Identifiable, Hashable, Codable {
     var merge: MergeInfo? = nil
     /// Set when the PR belongs to a native GitHub stack.
     var stack: StackInfo? = nil
+    /// Whether you opened this PR. Nil in blobs cached before it was fetched.
+    var viewerDidAuthor: Bool? = nil
+    /// Lines and files changed. Nil in older cached blobs.
+    var size: PRSize? = nil
+    /// People and teams whose review is still requested (bots excluded).
+    var pendingReviewers: [PendingReviewer]? = nil
+    /// Review threads nobody has resolved yet.
+    var unresolvedThreads: Int? = nil
+
+    var isTeammates: Bool { viewerDidAuthor == false }
 
     /// Copy with a flipped draft flag. PR's fields are immutable, so the
     /// optimistic draft toggles in `Store` would otherwise re-list every
@@ -493,7 +517,11 @@ struct PR: Identifiable, Hashable, Codable {
             mergeableState: mergeableState,
             nodeID: nodeID,
             merge: merge,
-            stack: stack
+            stack: stack,
+            viewerDidAuthor: viewerDidAuthor,
+            size: size,
+            pendingReviewers: pendingReviewers,
+            unresolvedThreads: unresolvedThreads
         )
     }
 
@@ -551,6 +579,29 @@ struct PR: Identifiable, Hashable, Codable {
         if checkStatus == .pending { return "CI still running" }
         return "Not mergeable"
     }
+}
+
+struct PRSize: Codable, Hashable {
+    let additions: Int
+    let deletions: Int
+    let files: Int
+
+    var lines: Int { additions + deletions }
+    /// Small enough to review in a few minutes.
+    var isTiny: Bool { lines <= 50 }
+    /// "+42 −8"
+    var label: String { "+\(additions) −\(deletions)" }
+}
+
+/// A reviewer (person or team) whose review is still requested on a PR.
+struct PendingReviewer: Codable, Hashable {
+    /// Login, or "org/team-slug" for teams.
+    let handle: String
+    let isTeam: Bool
+    /// When the latest request went out; nil if the timeline didn't say.
+    let requestedAt: Date?
+
+    var mention: String { "@\(handle)" }
 }
 
 /// Review event passed to `POST /repos/.../pulls/N/reviews`. Raw values are

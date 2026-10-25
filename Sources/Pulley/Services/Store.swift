@@ -9,6 +9,18 @@ final class Store: ObservableObject {
     @Published var syncing: Bool = false
     @Published var lastError: String? = nil
     @Published var lastSync: Date? = nil
+    /// Which PRs are listed (authored, review requests, …). The popover's
+    /// tabs switch it through `switchScope(_:)`.
+    @Published private(set) var scope: Scope
+    /// Last list fetched for each scope this session, so switching tabs shows
+    /// something immediately while the fresh fetch runs.
+    private var prsByScope: [Scope: [PR]] = [:]
+    /// Open PRs per scope for the popover's tab counts, refreshed on sync.
+    @Published private(set) var scopeCounts: [Scope: Int] = [:]
+    /// PRs you nudged reviewers on, so Up next doesn't suggest it again
+    /// straight away.
+    @Published private(set) var nudgedAt: [String: Date] = [:]
+    private let nudgedKey = "store.nudged.v1"
     /// First name (or login) for the main window's greeting. Fetched once.
     @Published var viewerName: String? = nil
     /// Set to ask the main window to open Settings on a section (from the
@@ -64,11 +76,13 @@ final class Store: ObservableObject {
 
     init() {
         isMockData = MockData.isEnabled
+        scope = Config.scope
         if isMockData {
-            prs = MockData.prs
+            prs = MockData.prs(for: scope)
             lastSync = Date().addingTimeInterval(-60)
             viewerName = "Mohit"
             notifications = MockData.inbox
+            refreshScopeCounts()
             contributions = MockData.contributions
             lastError = MockData.initialError
         } else {
@@ -95,6 +109,11 @@ final class Store: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: readThreadsKey),
            let cached = try? JSONDecoder().decode([String: Date].self, from: data) {
             self.readThreads = cached
+        }
+        if let data = UserDefaults.standard.data(forKey: nudgedKey),
+           let cached = try? JSONDecoder().decode([String: Date].self, from: data) {
+            let cutoff = Date().addingTimeInterval(-7 * 86_400)
+            self.nudgedAt = cached.filter { $0.value > cutoff }
         }
     }
 
@@ -177,7 +196,7 @@ final class Store: ObservableObject {
         lastError = nil
 
         let client = GitHubClient(token: token, orgs: Config.orgs)
-        let scope  = Config.scope
+        let scope  = self.scope
 
         Task {
             do {
@@ -186,10 +205,23 @@ final class Store: ObservableObject {
                 // tank the whole sync.
                 async let prsTask    = client.fetchPRs(scope: scope)
                 async let inboxTask  = client.fetchNotifications()
-                let fetched = try await prsTask
-                let inbox   = (try? await inboxTask).map(self.filterReadThreads) ?? self.notifications
+                async let countsTask = client.fetchScopeCounts(
+                    excludeDrafts: Config.hideDraftsInMenuBar, mutedRepos: Config.mutedRepos
+                )
+                let fetched = try await prsTask.filter { !Config.isMuted(org: $0.org, repo: $0.repo) }
+                // The user switched tabs mid-fetch: this list is for the old
+                // scope, so drop it and fetch the current one.
+                guard scope == self.scope else {
+                    self.syncing = false
+                    self.sync()
+                    return
+                }
+                let inbox   = ((try? await inboxTask).map(self.filterReadThreads) ?? self.notifications)
+                    .filter { !Config.isMuted(org: $0.org, repo: $0.repo) }
                 let merged  = self.applyLocalOverrides(to: fetched)
+                if let counts = try? await countsTask { self.scopeCounts = counts }
                 self.prs = merged
+                self.prsByScope[scope] = merged
                 self.notifications = inbox
                 self.saveCache()
                 self.lastSync = Date()
@@ -202,7 +234,7 @@ final class Store: ObservableObject {
                 // Merge-flow changes the user just made themselves shouldn't
                 // come back as "removed from queue" style notifications.
                 NotificationsManager.shared.reconcile(
-                    merged, localMergeChanges: Set(self.mergeOverrides.keys)
+                    merged, scope: scope, localMergeChanges: Set(self.mergeOverrides.keys)
                 )
 
                 // Off the main actor — git shells out and GitHub round-trips
@@ -215,8 +247,12 @@ final class Store: ObservableObject {
                     )
                 }
             } catch {
-                self.lastError = error.localizedDescription
                 self.syncing = false
+                guard scope == self.scope else {
+                    self.sync()
+                    return
+                }
+                self.lastError = error.localizedDescription
             }
         }
     }
@@ -238,12 +274,133 @@ final class Store: ObservableObject {
     private func syncMockData() {
         syncing = true
         lastError = nil
+        let scope = self.scope
         Task {
             try? await Task.sleep(nanoseconds: 350_000_000)
-            self.prs = MockData.prs
-            self.lastSync = Date()
             self.syncing = false
+            guard scope == self.scope else {
+                self.sync()
+                return
+            }
+            self.prs = MockData.prs(for: scope).filter { !Config.isMuted(org: $0.org, repo: $0.repo) }
+            self.prsByScope[scope] = self.prs
+            self.lastSync = Date()
+            self.refreshScopeCounts()
         }
+    }
+
+    /// Recount every tab after a setting that changes what's listed (hidden
+    /// drafts, muted repos). Mock mode counts the fixtures; otherwise it's
+    /// one small GitHub request, best-effort.
+    func refreshScopeCounts() {
+        if isMockData {
+            var counts: [Scope: Int] = [:]
+            for scope in Scope.allCases {
+                counts[scope] = MockData.prs(for: scope).filter {
+                    !Config.isMuted(org: $0.org, repo: $0.repo)
+                        && !(Config.hideDraftsInMenuBar && $0.isDraft)
+                }.count
+            }
+            scopeCounts = counts
+            return
+        }
+        guard Config.hasToken, let client = Config.makeClient() else { return }
+        Task {
+            if let counts = try? await client.fetchScopeCounts(
+                excludeDrafts: Config.hideDraftsInMenuBar, mutedRepos: Config.mutedRepos
+            ) {
+                self.scopeCounts = counts
+            }
+        }
+    }
+
+    // MARK: Muted repos
+
+    /// Hide a repo everywhere, right away. Its PRs and inbox threads drop out
+    /// locally; the counts refetch.
+    func mute(org: String, repo: String) {
+        Config.mutedRepos.insert("\(org)/\(repo)".lowercased())
+        dropMuted()
+    }
+
+    /// Unmuting needs a fetch to bring the repo's PRs back.
+    func unmute(_ key: String) {
+        Config.mutedRepos.remove(key.lowercased())
+        sync()
+        refreshScopeCounts()
+    }
+
+    private func dropMuted() {
+        let keep: (PR) -> Bool = { !Config.isMuted(org: $0.org, repo: $0.repo) }
+        prs = prs.filter(keep)
+        prsByScope = prsByScope.mapValues { $0.filter(keep) }
+        notifications = notifications.filter { !Config.isMuted(org: $0.org, repo: $0.repo) }
+        saveCache()
+        refreshScopeCounts()
+    }
+
+    // MARK: Popover actions
+
+    /// Comment on the PR @mentioning reviewers who haven't responded. A
+    /// re-request doesn't notify people who are still pending; a mention does.
+    func nudge(_ pr: PR) async throws {
+        let mentions = (pr.pendingReviewers ?? []).map(\.mention)
+        guard !mentions.isEmpty else { return }
+        if !isMockData {
+            guard let client = Config.makeClient() else { throw GitHubError(message: "Token not set") }
+            let body = "\(mentions.joined(separator: " ")) friendly nudge: could you take a look at this when you get a chance? Thanks!"
+            try await client.postComment(org: pr.org, repo: pr.repo, number: pr.number, body: body)
+        } else {
+            try await Task.sleep(nanoseconds: 400_000_000)
+        }
+        // Let the button show "Nudged" before the suggestion moves on.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self else { return }
+            self.nudgedAt[pr.id] = Date()
+            if !self.isMockData, let data = try? JSONEncoder().encode(self.nudgedAt) {
+                UserDefaults.standard.set(data, forKey: self.nudgedKey)
+            }
+        }
+    }
+
+    /// Approve without a comment, pinned to the head commit you saw. On the
+    /// Review requests tab the PR leaves the list (it's no longer waiting
+    /// on you); a sync reconciles the rest.
+    func approve(_ pr: PR) async throws {
+        if !isMockData {
+            guard let client = Config.makeClient() else { throw GitHubError(message: "Token not set") }
+            try await client.submitReview(
+                org: pr.org, repo: pr.repo, number: pr.number,
+                event: .approve, body: nil, commitID: pr.headSha
+            )
+        } else {
+            try await Task.sleep(nanoseconds: 400_000_000)
+        }
+        // Let the button show "Approved" before the PR leaves the list.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self else { return }
+            if self.scope == .reviewRequested {
+                self.prs.removeAll { $0.id == pr.id }
+                self.scopeCounts[.reviewRequested] = max(0, (self.scopeCounts[.reviewRequested] ?? 1) - 1)
+                self.saveCache()
+            }
+            if !self.isMockData { self.sync() }
+        }
+    }
+
+    /// Show another set of PRs. The list for that scope from earlier in the
+    /// session (if any) appears straight away; a sync replaces it. A sync
+    /// already in flight for the old scope notices and re-runs for this one.
+    func switchScope(_ newScope: Scope) {
+        guard newScope != scope else { return }
+        prsByScope[scope] = prs
+        scope = newScope
+        prs = (prsByScope[newScope] ?? []).filter { !Config.isMuted(org: $0.org, repo: $0.repo) }
+        if !isMockData {
+            Config.scope = newScope
+            saveCache()
+        }
+        sync()
     }
 
     /// Optimistically drop the thread locally and remember it as read (keyed by
@@ -320,14 +477,20 @@ final class Store: ObservableObject {
         saveCache()
     }
 
+    /// The PRs the menu-bar surfaces (popover, count, peek menu) show:
+    /// everything, or everything but drafts when Settings hides them.
+    var menuBarPRs: [PR] {
+        Config.hideDraftsInMenuBar ? prs.filter { !$0.isDraft } : prs
+    }
+
     /// Count of PRs that need attention (anything not yet approved).
     var openCount: Int {
-        prs.filter { $0.status != .approved }.count
+        menuBarPRs.filter { $0.status != .approved }.count
     }
 
     /// True if anything in the current scope deserves a red badge — i.e. a
     /// reviewer asked for changes, or CI is failing.
     var needsAttention: Bool {
-        prs.contains { $0.status == .changes || $0.checkStatus == .failure }
+        menuBarPRs.contains { $0.status == .changes || $0.checkStatus == .failure }
     }
 }

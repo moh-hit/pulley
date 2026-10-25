@@ -17,6 +17,8 @@ extension Notification.Name {
     static let pulleyCopySelectedBranch    = Notification.Name("PulleyCopySelectedBranch")
     static let pulleyToggleSelectedExpand  = Notification.Name("PulleyToggleSelectedExpand")
     static let pulleyFocusSearch           = Notification.Name("PulleyFocusSearch")
+    /// userInfo: ["index": Int] — position in `Scope.tabOrder` (⌘1…⌘4).
+    static let pulleySelectScope           = Notification.Name("PulleySelectScope")
     static let pulleyOpenSettings          = Notification.Name("PulleyOpenSettings")
     /// Select a PR in the main window; `object` is the PR id.
     static let pulleySelectPR              = Notification.Name("PulleySelectPR")
@@ -89,7 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // on its next open. Dismissal is handled manually via the click monitor.
         popover.behavior = .applicationDefined
         popover.animates = false
-        popover.contentSize = NSSize(width: 460, height: 520)
+        popover.delegate = self
+        popover.contentSize = NSSize(width: 460, height: 580)
         let host = NSHostingController(rootView: ContentView().environmentObject(store))
         popover.contentViewController = host
         // A popover takes its look from the view it hangs off — the status
@@ -185,11 +188,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateBadge() {
         guard let button = statusItem.button else { return }
+        // The popover hangs off this button, so resizing it (9 → 10) would
+        // slide the open popover sideways, e.g. on every tab switch. Hold the
+        // count while it's open; `popoverDidClose` catches up.
+        if popover?.isShown == true { return }
         let n = store.openCount
         let shown: Int
         switch Config.menuBarCount {
         case .open:      shown = n
-        case .attention: shown = store.prs.filter { $0.status == .changes || $0.checkStatus == .failure }.count
+        case .attention: shown = store.menuBarPRs.filter { $0.status == .changes || $0.checkStatus == .failure }.count
         case .hidden:    shown = 0
         }
         let title = shown > 0 ? " \(shown)" : ""
@@ -198,7 +205,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let color: NSColor = store.needsAttention ? .systemRed : .labelColor
         button.attributedTitle = NSAttributedString(string: title, attributes: [
             .foregroundColor: color,
-            .font:            NSFont.menuBarFont(ofSize: 0),
+            // Fixed-width digits, so 12 → 14 doesn't change the item's width.
+            .font:            NSFont.monospacedDigitSystemFont(
+                ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular
+            ),
         ])
 
         // Red color + bare digit are invisible to VoiceOver. Provide a
@@ -340,7 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
 
         // Needs-attention first, then most-recently-updated.
-        let prs = store.prs.sorted { a, b in
+        let prs = store.menuBarPRs.sorted { a, b in
             let aHot = a.status == .changes || a.checkStatus == .failure
             let bHot = b.status == .changes || b.checkStatus == .failure
             if aHot != bHot { return aHot }
@@ -552,6 +562,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "o":
                 NotificationCenter.default.post(name: .pulleyOpenMainWindow, object: nil)
                 return true
+            case "1", "2", "3", "4":
+                let index = (Int(chars) ?? 1) - 1
+                NotificationCenter.default.post(name: .pulleySelectScope, object: nil,
+                                                userInfo: ["index": index])
+                return true
             default:
                 break
             }
@@ -623,4 +638,10 @@ extension Bundle {
         }
         return .main
     }()
+}
+
+extension AppDelegate: NSPopoverDelegate {
+    nonisolated func popoverDidClose(_ notification: Notification) {
+        MainActor.assumeIsolated { updateBadge() }
+    }
 }

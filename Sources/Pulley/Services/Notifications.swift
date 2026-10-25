@@ -17,7 +17,7 @@ final class NotificationsManager: NSObject {
     static let shared = NotificationsManager()
 
     // v2: added mergeableState tracking — v1 snapshots are dropped on first load.
-    private let snapshotKey       = "notifications.snapshot.v2"
+    private let snapshotKeyPrefix = "notifications.snapshot.v2"
     private let permissionAskedKey = "notifications.permissionAsked"
     private var authorized = false
 
@@ -59,7 +59,9 @@ final class NotificationsManager: NSObject {
     /// (no notifications) so we don't spam the user on app launch.
     /// `localMergeChanges` are PR ids whose queue / auto-merge state the user
     /// just changed from Pulley — no point notifying them about their own click.
-    func reconcile(_ prs: [PR], localMergeChanges: Set<String> = []) {
+    /// Snapshots are kept per scope, so switching the popover's tabs doesn't
+    /// announce every PR in the other list as new.
+    func reconcile(_ prs: [PR], scope: Scope, localMergeChanges: Set<String> = []) {
         let newSnap = Snapshot(
             status:         Dictionary(uniqueKeysWithValues: prs.map { ($0.id, $0.status.rawValue) }),
             checkStatus:    Dictionary(uniqueKeysWithValues: prs.map { ($0.id, $0.checkStatus.rawValue) }),
@@ -68,8 +70,8 @@ final class NotificationsManager: NSObject {
             autoMerge:      Set(prs.filter { $0.merge?.autoMerge != nil }.map(\.id))
         )
 
-        guard let oldSnap = loadSnapshot() else {
-            saveSnapshot(newSnap)
+        guard let oldSnap = loadSnapshot(scope) else {
+            saveSnapshot(newSnap, scope)
             return
         }
 
@@ -78,12 +80,14 @@ final class NotificationsManager: NSObject {
         if authorized {
             diffAndPost(old: oldSnap, new: newSnap, prs: prs, skipMergeFlow: localMergeChanges)
         }
-        saveSnapshot(newSnap)
+        saveSnapshot(newSnap, scope)
     }
 
     /// Wipe state — handy when the user signs out or rotates token/org.
     func resetSnapshot() {
-        UserDefaults.standard.removeObject(forKey: snapshotKey)
+        for scope in Scope.allCases {
+            UserDefaults.standard.removeObject(forKey: snapshotKey(scope))
+        }
     }
 
     // MARK: - Internals
@@ -177,14 +181,16 @@ final class NotificationsManager: NSObject {
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
     }
 
-    private func loadSnapshot() -> Snapshot? {
-        guard let data = UserDefaults.standard.data(forKey: snapshotKey) else { return nil }
+    private func snapshotKey(_ scope: Scope) -> String { "\(snapshotKeyPrefix).\(scope.rawValue)" }
+
+    private func loadSnapshot(_ scope: Scope) -> Snapshot? {
+        guard let data = UserDefaults.standard.data(forKey: snapshotKey(scope)) else { return nil }
         return try? JSONDecoder().decode(Snapshot.self, from: data)
     }
 
-    private func saveSnapshot(_ s: Snapshot) {
+    private func saveSnapshot(_ s: Snapshot, _ scope: Scope) {
         if let data = try? JSONEncoder().encode(s) {
-            UserDefaults.standard.set(data, forKey: snapshotKey)
+            UserDefaults.standard.set(data, forKey: snapshotKey(scope))
         }
     }
 }

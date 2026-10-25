@@ -8,15 +8,50 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-25
+
+### Added
+- **Tabs in the menu bar.** Authored, Review requests, Assigned and
+  Involved sit above the search field, each with its count (⌘1–⌘4 to
+  switch). A tab you've opened shows its last list at once while it
+  refreshes, and notifications are tracked per tab, so switching doesn't
+  announce every PR as new.
+- **Up next.** A card under the popover list suggests what to do next:
+  feedback to address, an approved PR to merge, unresolved threads,
+  conflicts, failing CI, reviewers to nudge, or the review request that
+  has waited longest (small, green ones first as quick reviews). Step
+  through suggestions with the arrow; click the card to open the PR.
+- **Approve and nudge from the menu bar.** Approve a teammate's PR with
+  green CI, or nudge reviewers who haven't responded with a comment that
+  mentions them, from the expanded row or the Up next card. Both ask for
+  a second click before posting.
+- **PR size and unresolved threads** on popover rows: a +42 −8 chip in
+  diff colors and a comment count. Expanded rows show who you're waiting
+  on and since when.
+- **Mute repositories.** Right-click a PR in the menu bar, or add one in
+  Settings › Pull requests. Muted repos drop out of lists, counts, the
+  menu-bar badge, notifications and the Inbox.
+- **Hide drafts in the menu bar** (Settings › General). Drafts leave the
+  popover, its count and the right-click menu; the window still lists
+  them.
+
+### Changed
+- **Expanded popover rows** are now a short list of facts (branch,
+  reviewers, threads, and CI as one line with only failing or running
+  checks listed) and actions at their natural width, the most relevant
+  one first and in color.
+- The menu-bar count uses fixed-width digits and holds still while the
+  popover is open, so switching tabs no longer slides the popover.
+- Row timestamps and status chips share the right edge; the expand
+  chevron takes the timestamp's place on hover.
+- README: current screenshots, the full feature list, the new Settings
+  sections, and notarized-release install notes (no more right-click → Open).
+
 ### Fixed
 - **The popover now follows the Theme setting.** With Theme set to Light
   or Dark, the menu-bar popover kept the menu bar's look instead (dark
   popover, light window). It now matches the app and updates live when the
   setting or the system appearance changes.
-
-### Changed
-- README: current screenshots, the full feature list, the new Settings
-  sections, and notarized-release install notes (no more right-click → Open).
 
 ## [1.11.0] - 2026-10-20
 
@@ -485,7 +520,8 @@ to settings shape or filesystem layout.
 - Tag-push release pipeline (`.github/workflows/release.yml`) that
   builds an ad-hoc-signed DMG.
 
-[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/moh-hit/pulley/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/moh-hit/pulley/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/moh-hit/pulley/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/moh-hit/pulley/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/moh-hit/pulley/compare/v1.8.0...v1.9.0
