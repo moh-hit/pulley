@@ -8,6 +8,11 @@ to settings shape or filesystem layout.
 
 ## [Unreleased]
 
+### Changed
+- **The app is now notarized and stapled on its own**, not just the DMG,
+  so Gatekeeper can verify Pulley offline the first time it opens after
+  you copy it to Applications.
+
 ## [1.12.0] - 2026-10-25
 
 ### Added
