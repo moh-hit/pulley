@@ -1,6 +1,8 @@
 #!/bin/bash
 #
 # Build a versioned Pulley.dmg with a styled "drag-to-Applications" installer.
+# With PULLEY_SIGN_IDENTITY set, the app and the DMG are each signed,
+# notarized and stapled.
 #
 # Usage:
 #   ./release.sh <version>          # e.g. ./release.sh 1.2.0
@@ -54,6 +56,27 @@ echo "→ Building app bundle"
 [[ -d "$HERE/$BUNDLE" ]] || { echo "ERROR: $BUNDLE not built" >&2; exit 1; }
 
 mkdir -p "$DIST"
+NOTARY_PROFILE="${PULLEY_NOTARY_PROFILE:-pulley-notary}"
+
+# Notarize and staple the app itself, not just the DMG. The DMG's ticket
+# stays with the DMG; once the app is copied to /Applications, Gatekeeper
+# has to look it up online on first launch. A ticket stapled to the app
+# lets that check pass offline too. `stapler staple` fails (and so does
+# the release) if Apple didn't accept the submission.
+if [[ -n "${PULLEY_SIGN_IDENTITY:-}" ]]; then
+    APP_ZIP="$DIST/.${APP_NAME}-notarize.zip"
+    echo "→ Notarizing $BUNDLE via profile '$NOTARY_PROFILE' (waits for Apple)"
+    rm -f "$APP_ZIP"
+    ditto -c -k --keepParent "$HERE/$BUNDLE" "$APP_ZIP"
+    xcrun notarytool submit "$APP_ZIP" \
+        --keychain-profile "$NOTARY_PROFILE" \
+        --wait
+    rm -f "$APP_ZIP"
+
+    echo "→ Stapling notarization ticket to $BUNDLE"
+    xcrun stapler staple "$HERE/$BUNDLE"
+    xcrun stapler validate "$HERE/$BUNDLE"
+fi
 DMG_FINAL="$DIST/${APP_NAME}-${VERSION}.dmg"
 CALIB_DMG="$DIST/.calibration.dmg"
 STAGING="$DIST/.staging"
@@ -240,8 +263,7 @@ if [[ -n "${PULLEY_SIGN_IDENTITY:-}" ]]; then
     echo "→ Signing DMG as: $PULLEY_SIGN_IDENTITY"
     codesign --force --sign "$PULLEY_SIGN_IDENTITY" --timestamp "$DMG_FINAL"
 
-    NOTARY_PROFILE="${PULLEY_NOTARY_PROFILE:-pulley-notary}"
-    echo "→ Submitting for notarization via profile '$NOTARY_PROFILE' (waits for Apple)"
+    echo "→ Submitting DMG for notarization via profile '$NOTARY_PROFILE' (waits for Apple)"
     xcrun notarytool submit "$DMG_FINAL" \
         --keychain-profile "$NOTARY_PROFILE" \
         --wait

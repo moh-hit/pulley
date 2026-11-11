@@ -68,7 +68,7 @@ jobs:
               --team-id   "$APPLE_TEAM_ID" \
               --password  "$APPLE_ID_PASSWORD"
 
-      - name: Build, sign, notarize, staple DMG
+      - name: Build, sign, notarize, staple app and DMG
         env:
           PULLEY_NOTARY_PROFILE: pulley-notary
         run: ./release.sh "${{ steps.ver.outputs.version }}"
